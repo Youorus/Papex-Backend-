@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Facture</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 20mm 15mm;
+    }
+
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      color: #2e2e2e;
+      background-color: #fff;
+      line-height: 1.5;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .header-flex {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 25px;
+      gap: 30px;
+    }
+
+    .logo-big {
+      height: 90px;
+      width: auto;
+      display: block;
+    }
+
+    .company-info-right {
+      text-align: right;
+      font-size: 12px;
+      color: #555;
+      line-height: 1.6;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 20px;
+      color: #2e2e2e;
+      margin-bottom: 25px;
+      border-bottom: 2px solid #94a3b8;
+      padding-bottom: 8px;
+    }
+
+    .invoice-info {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 25px;
+      gap: 20px;
+    }
+
+    .invoice-details, .client-info {
+      flex: 1;
+    }
+
+    .section-title {
+      font-weight: 600;
+      font-size: 13px;
+      color: #333333;
+      border-left: 4px solid #666666;
+      padding-left: 10px;
+      margin-bottom: 8px;
+    }
+
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 15px;
+    }
+
+    .info-table td {
+      padding: 5px 3px;
+      vertical-align: top;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .info-table td.label {
+      width: 40%;
+      font-weight: bold;
+      color: #2e2e2e;
+    }
+
+    .products-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+      border: 1px solid #cbd5e1;
+    }
+
+    .products-table th,
+    .products-table td {
+      border: 1px solid #cbd5e1;
+      padding: 8px;
+      text-align: center;
+      font-size: 11px;
+    }
+
+    .products-table th {
+      background-color: #333;
+      color: white;
+      font-weight: 600;
+    }
+
+    .products-table td {
+      background-color: #f8fafc;
+    }
+
+    .tva-details {
+      width: 60%;
+      margin-left: auto;
+      margin-top: 15px;
+      border: 1px solid #cbd5e1;
+    }
+
+    .tva-details th,
+    .tva-details td {
+      border: 1px solid #cbd5e1;
+      padding: 6px;
+      text-align: left;
+      font-size: 11px;
+    }
+
+    .tva-details th {
+      background-color: #f1f5f9;
+      font-weight: 600;
+    }
+
+    .payment-info {
+      margin-top: 25px;
+      padding: 15px;
+      background-color: #f8fafc;
+      border: 1px solid #cbd5e1;
+    }
+
+    .payment-info .section-title {
+      margin-top: 0;
+    }
+
+    .footer {
+      text-align: center;
+      font-size: 10px;
+      color: #6b7280;
+      margin-top: 40px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 15px;
+    }
+
+    .legal-notice {
+      font-size: 9px;
+      color: #9ca3af;
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header-flex">
+      <img src="{{ company.logo_url }}" alt="Logo TDS France" class="logo-big" />
+      <div class="company-info-right">
+        <strong>{{ company.name }}</strong><br>
+        {{ company.email }}<br>
+        {{ company.website }}<br>
+        SIRET : {{ company.siret }}<br>
+        TVA : {{ company.tva_number }}
+      </div>
+    </div>
+
+    <h1>FACTURE</h1>
+
+    <div class="invoice-info">
+      <div class="invoice-details">
+        <div class="section-title">Détails de la Facture</div>
+        <table class="info-table">
+          <tr><td class="label">Numéro :</td><td>{{ invoice_ref }}</td></tr>
+          <tr><td class="label">Date d'émission :</td><td>{{ emission_date }}</td></tr>
+          <tr><td class="label">Date d'échéance :</td><td>{{ due_date }}</td></tr>
+        </table>
+      </div>
+
+      <div class="client-info">
+        <div class="section-title">Client</div>
+        <table class="info-table">
+          <tr><td class="label">Nom :</td><td>{{ client_name }}</td></tr>
+          <tr><td class="label">Adresse :</td><td>{{ client_address }}</td></tr>
+          <tr><td class="label">Téléphone :</td><td>{{ client_phone }}</td></tr>
+          <tr><td class="label">Email :</td><td>{{ client_email }}</td></tr>
+        </table>
+      </div>
+    </div>
+
+<div class="section">
+    <div class="section-title">Détails des Prestations</div>
+
+    <!-- ✅ Affichage de la remise si elle existe -->
+    {% if discount_percent and discount_percent != "0.00%" %}
+    <div style="margin-bottom: 15px; padding: 10px; background-color: #f0f9ff; border-left: 4px solid #3b82f6;">
+        <strong>Remise appliquée : {{ discount_percent }}</strong><br>
+        <small>Montant original : {{ original_amount }} → Montant après remise : {{ total_ttc }}</small>
+    </div>
+    {% endif %}
+
+    <table class="products-table">
+        <thead>
+            <tr>
+                <th>Produits / Services</th>
+                <th>Qté</th>
+                <th>Prix u. HT</th>
+                <th>TVA (%)</th>
+                <th>Total HT</th>
+                <th>Total TTC</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{{ service }}</td>
+                <td>{{ quantity }}</td>
+                <td>{{ unit_price_ht }}</td>
+                <td>{{ tva_rate }}</td>
+                <td>{{ total_ht }}</td>
+                <td><strong>{{ total_ttc }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <table class="tva-details">
+        <thead>
+            <tr>
+                <th>Taux</th>
+                <th>Montant TVA</th>
+                <th>Base HT</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{{ tva_rate }}</td>
+                <td>{{ montant_tva }}</td>
+                <td>{{ base_ht }}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+
+    <div class="legal-notice">
+      <p>
+        Pénalités de retard : trois fois le taux annuel d'intérêt légal en vigueur calculé depuis la date d'échéance jusqu'à complet paiement du prix.
+        Indemnité forfaitaire pour frais de recouvrement en cas de retard de paiement : 40 €.
+      </p>
+    </div>
+
+    <div class="footer">
+      {{ company.name }} | SAS, société par actions simplifiée au capital social de 1000,00 € |
+      N° SIREN {{ company.siret }} | N° de TVA {{ company.tva_number }}<br>
+      Généré automatiquement par {{ company.name }}
+    </div>
+  </div>
+</body>
+</html>

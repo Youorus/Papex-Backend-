@@ -1,0 +1,39 @@
+<!-- templates/email/leads/jurist_assigned.html -->
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Juriste assigné – TDS France</title>
+  </head>
+  <body style="background-color:#f6f8fb; font-family: Arial, sans-serif; padding: 40px;">
+    <table width="100%" bgcolor="#ffffff" cellpadding="0" cellspacing="0" style="border-radius: 8px; padding: 40px;">
+      <tr>
+        <td align="center">
+          <img src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" style="max-width: 300px;" />
+          <h2 style="color:#0e7490;">Un juriste vous a été assigné</h2>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <p style="font-size:16px; color:#333;">Bonjour {{ lead.first_name|capfirst }} {{ lead.last_name|capfirst }},</p>
+          <p style="font-size:16px; color:#555; line-height:1.6;">
+            Nous vous informons qu’un juriste a été assigné à votre dossier.
+            Il assurera le suivi et pourra intervenir pour toute demande nécessitant une expertise juridique.
+          </p>
+          <p style="font-size:16px; color:#333;">
+            <b>Juriste référent :</b><br/>
+            {{ jurist.first_name }} {{ jurist.last_name }}
+          </p>
+          <p style="font-size:16px; color:#555;">
+            Vous serez recontacté(e) si un rendez-vous est nécessaire. <br/>
+            En attendant, vous pouvez nous joindre pour toute question.
+          </p>
+          <p style="font-size:14px; color:#777;">
+            L’équipe TDS France<br/>
+            Cet e-mail est automatique, merci de ne pas y répondre directement.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

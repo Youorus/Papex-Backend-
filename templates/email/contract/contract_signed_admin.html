@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <title>Contrat signé – {{ client.full_name }}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f9fafb;
+            color: #333;
+            margin: 0;
+            padding: 2rem;
+        }
+        .container {
+            background: #fff;
+            border-radius: 10px;
+            padding: 2rem;
+            max-width: 600px;
+            margin: auto;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #1a73e8;
+            margin-bottom: 1rem;
+        }
+        p {
+            margin: 0.5rem 0;
+            line-height: 1.5;
+        }
+        .footer {
+            margin-top: 2rem;
+            font-size: 0.9rem;
+            color: #777;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <h2>Contrat signé – {{ client.lead.first_name }} {{ client.lead.last_name }}</h2>
+<p><strong>Service :</strong> {{ contract.service.label }}</p>
+<p><strong>Montant du service :</strong> {{ contract.real_amount }} €</p>
+<p><strong>Montant déjà payé :</strong> {{ contract.amount_paid }} €</p>
+<p><strong>Conseiller :</strong> {{ contract.created_by.get_full_name }}</p>
+<p><strong>Date & Heure :</strong> {{ contract.created_at }}</p>
+
+    <div class="footer">
+        <p>— TDS France</p>
+        <p>Ce message est généré automatiquement, merci de ne pas y répondre.</p>
+    </div>
+</div>
+</body>
+</html>

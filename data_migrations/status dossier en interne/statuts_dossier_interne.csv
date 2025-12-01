@@ -1,0 +1,40 @@
+﻿code,label,description,color
+A_TRAITER_CS_EXPIRE_2026,A TRAITER CS expire en 2026,Dossier à traiter, titre CS expirant en 2026,#f59e0b
+AES_A_TRAITER_ZINEB,AES A TRAITER ZINEB,Dossier en attente de traitement par Zineb,#f59e0b
+ALLEY_DOSSIER_REGROUPEMENT_FAMILIAL_DEPOSE,ALLEY / DOSSIER REGROUPEMENT FAMILIAL DEPOSE,Dossier regroupement familial déposé,#f59e0b
+ALLEY_INSTRUCTION_D_SIMPLIFIEES,ALLEY / Instruction D. simplifiées,Dossier en instruction simplifiée,#3b82f6
+ALLEY_RDV_OBTENU,ALLEY / RDV OBTENU,Rendez-vous obtenu pour Alley,#22c55e
+ALLEY_TITRES_DE_SEJOUR_OBTENU,ALLEY / Titres de séjour obtenu,Titre de séjour validé et obtenu,#22c55e
+ALLEY_EN_ATTENTE_DE_RDV,ALLEY /EN ATTENTE DE RDV,Dossier en attente de rendez-vous,#f59e0b
+ALLEY_ANEF_DOSSIER_RECENTS,ALLEY : ANEF DOSSIER Récents,Dossier ANEF récent en cours,#3b82f6
+ALLEY_ATTENTE_AR_LETTRES,ALLEY : ATTENTE A.R.LETTRES,En attente d’accusé de réception des lettres,#facc15
+ALLEY_DOSSIER_ANNULE,ALLEY : DOSSIER ANNULE,Dossier annulé par l’équipe Alley,#ef4444
+ALLEY_CONSTRUCTION,ALLEY CONSTRUCTION,Constitution d’un dossier Alley,#a855f7
+ALLEY_INSTRUCTION_ANEF,ALLEY Instruction ANEF,Dossier en instruction ANEF,#3b82f6
+ALLEY_DEMANDE_DE_DOC,ALLEY/DEMANDE DE DOC,Demande de documents complémentaires,#3b82f6
+ALLEY_DOSSIER_NATURALISATION_DEPOSES,ALLEY/DOSSIER NATURALISATION DEPOSES,Dossier de naturalisation déposé,#3b82f6
+ALLEY_PIECES_DEMANDEES,ALLEY: PIECES DEMANDEES,Pièces demandées au client,#3b82f6
+ALLEY_RDV_OBTENU_DEMARCHES_SIMPLIFIEES,ALLEY: RDV Obtenu Démarches simplifiiées,RDV obtenu pour démarches simplifiées,#22c55e
+AVOCAT,AVOCAT,Dossier confié à un avocat externe,#0ea5e9
+ALLEY_ATTENTE_RDV,Alley Attente RDV,Dossier en attente de RDV (Alley),#f59e0b
+ALLEY_ATTENTE_TRAITEMENT,Alley attente traitement,Dossier en cours de traitement (Alley),#f59e0b
+ALY_ANEF_INSTRUCTION,Aly Anef instruction,Dossier en instruction ANEF,#3b82f6
+BENJAMIN_DEPLACEMENT,BENJAMIN /DEPLACEMENT,Dossier nécessitant un déplacement par Benjamin,#3b82f6
+CONSTRUCTION_DOSSIER_COMMERCIAL,CONSTRUCTION DOSSIER-COMMERCIAL,Constitution initiale du dossier par le commercial,#a855f7
+DOSSIER_A_TRAITER_ZINEB_ATTENTE_PIECES,DOSSIER A TRAITER ZINEB / attente de pièces,Dossier à traiter Zineb avec pièces manquantes,#f59e0b
+JEN_ANNULE,JEN/ ANNULÉ,Dossier annulé (Jen),#ef4444
+JEN_INSTRUCTION,JEN/INSTRCUTION,Dossier en instruction (Jen),#3b82f6
+JENNIFER,JENNIFER,Dossier suivi par Jennifer,#6b7280
+JENNIFER_IMPAYE,JENNIFER / IMPAYE,Dossier suspendu pour impayés,#dc2626
+JENNIFER_ARCHIVE,JENNIFER/ARCHIVE,Dossier archivé (Jennifer),#6b7280
+JENNIFER_ATTENTE_DOCS,Jennifer / attente docs,Dossier en attente de documents,#f59e0b
+PIECE_DEMANDEES,PIECE DEMANDEES,Pièces supplémentaires demandées,#3b82f6
+PRESTA_AVOCAT,PRESTA AVOCAT,Prestation juridique par un avocat,#0ea5e9
+RENOUVELLEMENT_DEMARCHES_SIMPLIFIEES_ZINEB,RENOUVELLEMENT DEMARCHES SIMPLIFIEES ZINEB,Renouvellement avec démarches simplifiées (Zineb),#3b82f6
+RENOUVELLEMENT_PAR_VOIE_POSTALE_ZINEB,RENOUVELLEMENT PAR VOIE POSTALE ZINEB,Renouvellement envoyé par voie postale (Zineb),#3b82f6
+SUIVI_AES_ZINEB,SUIVI AES ZINEB,Suivi AES géré par Zineb,#3b82f6
+ZINEB_SUIVI_DE_DOSSIER_ANEF,ZINEB / SUIVI DE DOSSIER ANEF,Suivi ANEF géré par Zineb,#3b82f6
+ZINEB_CONTENTIEUX,ZINEB CONTENTIEUX,Dossier contentieux géré par Zineb,#0ea5e9
+ZINEB_NATURALISATION,ZINEB NATURALISATION,Dossier de naturalisation suivi par Zineb,#6366f1
+SUIVI_NATURALISATION,suivi Naturalisation,Suivi du dossier de naturalisation,#6366f1
+ZINEB_TITRE_OBTENU_PRESTA_CLOSE,zineb : TITRE OBTENU PRESTA CLOSE,Titre de séjour obtenu, prestation clôturée,#22c55e

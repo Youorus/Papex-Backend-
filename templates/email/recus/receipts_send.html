@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vos reçus de paiement – TDS France</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f9fafb;
+        font-family: Arial, sans-serif;
+      }
+
+      .container {
+        max-width: 520px;
+        margin: 30px auto;
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        padding: 32px 24px;
+      }
+
+      .logo {
+        display: block;
+        margin: 0 auto 24px;
+        max-width: 160px;
+      }
+
+      h2 {
+        color: #1d4ed8;
+        text-align: center;
+        font-size: 22px;
+        margin-bottom: 20px;
+      }
+
+      p {
+        font-size: 15px;
+        color: #374151;
+        line-height: 1.6;
+      }
+
+      ul {
+        padding-left: 22px;
+        margin-top: 16px;
+      }
+
+      li {
+        font-size: 15px;
+        margin-bottom: 10px;
+        color: #111827;
+      }
+
+      .badge {
+        display: inline-block;
+        background: #2563eb;
+        color: #fff;
+        border-radius: 18px;
+        font-size: 14px;
+        padding: 5px 12px;
+        margin-right: 8px;
+      }
+
+      .footer {
+        font-size: 13px;
+        color: #9ca3af;
+        text-align: center;
+        margin-top: 30px;
+      }
+
+      @media (max-width: 600px) {
+        .container {
+          padding: 20px 16px;
+        }
+        .logo {
+          max-width: 120px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <img src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" class="logo" />
+      <h2>Vos reçus de paiement</h2>
+
+      <p>
+        Bonjour {{ user.first_name }},
+        <br /><br />
+        Vous trouverez en pièce jointe
+        {% if receipts|length > 1 %}
+          <strong>vos reçus de paiement</strong> :
+        {% else %}
+          <strong>votre reçu de paiement</strong> :
+        {% endif %}
+      </p>
+
+      <ul>
+        {% for receipt in receipts %}
+        <li>
+          <span class="badge">{{ receipt.amount }} €</span>
+          Payé le {{ receipt.payment_date|date:"d/m/Y" }}
+        </li>
+        {% endfor %}
+      </ul>
+
+      <p style="margin-top: 28px;">
+        Merci de votre confiance.<br />
+        Notre équipe reste à votre disposition au
+        <strong>{{ phone }}</strong> pour toute demande ou information complémentaire.
+      </p>
+
+      <div class="footer">
+         {{ copyright }}<br />
+        Cet e-mail est automatique, merci de ne pas y répondre directement.
+      </div>
+    </div>
+  </body>
+</html>

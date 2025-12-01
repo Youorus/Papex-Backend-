@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Contrat de Prestation de Services - TDS France</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 12mm 15mm;
+      @bottom-right {
+        content: "Page " counter(page) " / " counter(pages);
+        font-size: 9pt;
+        color: #999;
+      }
+    }
+
+    body {
+      font-family: 'Inter', 'Segoe UI', 'Helvetica Neue', sans-serif;
+      font-size: 11pt;
+      color: #222;
+      line-height: 1.45;
+      margin: 0;
+      padding: 0;
+      counter-reset: section-counter;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 30px 0;
+    }
+
+    .header {
+      border-bottom: 1px solid #e0e0e0;
+      margin-bottom: 25px;
+      padding-bottom: 8px;
+    }
+
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header img {
+      height: 50px;
+      max-width: 140px;
+      display: block;
+      margin: 0 auto;
+      flex-grow: 1;
+      object-fit: contain;
+    }
+
+    .header-title {
+      font-size: 10pt;
+      color: #444;
+      white-space: nowrap;
+    }
+
+    h1 {
+      font-size: 18pt;
+      text-align: center;
+      font-weight: 700;
+      color: #111;
+      margin-bottom: 25px;
+      letter-spacing: -0.3px;
+    }
+
+    h2 {
+      counter-increment: section-counter;
+      position: relative;
+      padding-left: 25px;
+      font-size: 13pt;
+      color: #222;
+      margin-top: 25px;
+      margin-bottom: 10px;
+      font-weight: 700;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    h2::before {
+      content: counter(section-counter) ". ";
+      position: absolute;
+      left: 0;
+      top: 0;
+      font-weight: 700;
+      color: #2563eb;
+    }
+
+    p {
+      margin: 10px 0;
+      text-align: justify;
+      font-size: 10.5pt;
+    }
+
+    ul {
+      padding-left: 18px;
+      margin: 10px 0;
+    }
+
+    li {
+      margin-bottom: 6px;
+      font-size: 10.5pt;
+    }
+
+    .highlight {
+      font-weight: 600;
+      color: #000;
+    }
+
+    .parties {
+      background-color: #f8fafc;
+      border-left: 4px solid #3b82f6;
+      padding: 14px;
+      margin-bottom: 20px;
+      font-size: 10.5pt;
+    }
+
+    .service-item {
+      display: flex;
+      align-items: center;
+      margin: 10px 0;
+    }
+
+    .checkmark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      background-color: #2563eb;
+      color: #fff;
+      font-size: 12px;
+      font-weight: bold;
+      border-radius: 50%;
+      margin-right: 10px;
+      border: 2px solid #1d4ed8;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 30px;
+    }
+
+    td {
+      font-size: 10pt;
+      text-align: center;
+      padding-top: 15px;
+      border-top: 1px solid #ddd;
+      width: 50%;
+    }
+
+    .signature-block {
+      page-break-inside: avoid;
+      break-inside: avoid;
+      min-height: 150px;
+      margin-top: 30px;
+    }
+
+    .footer {
+      margin-top: 25px;
+      text-align: center;
+      font-size: 9pt;
+      color: #999;
+    }
+
+    @media print {
+      body, html {
+        margin: 0;
+        padding: 0;
+        height: auto !important;
+        overflow: visible !important;
+      }
+
+      .container {
+        padding: 0;
+      }
+
+      h2 {
+        margin-top: 18px;
+        margin-bottom: 8px;
+      }
+
+      /* Éviter les coupures de page dans les sections importantes */
+      h2, .parties, .signature-block {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+
+      /* Permettre les coupures de page entre les sections */
+      h2:first-child {
+        page-break-before: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-content">
+        <img src="https://i.imgur.com/iSzPCvI.jpeg" alt="Logo TDS France" />
+        <div class="header-title">
+          Contrat signé le : <strong>{{ date }}</strong>
+        </div>
+      </div>
+    </div>
+
+    <h1>Contrat de Prestation de Services</h1>
+
+    <div class="parties">
+      <p><span class="highlight">ENTRE :</span><br/>
+        TDS FRANCE, appelée dans ledit contrat « La Société », Société par Actions Simplifiées.</p>
+      <p>Dont le siège social est sis 11, rue de l'Arrivée – 75015 PARIS.</p>
+      <p>SIREN 928 184 043 00026.</p>
+      <p>Représentée par son Président.</p>
+      <p><strong>D'une part,</strong></p>
+      <p><span class="highlight">ET :</span><br/>
+        Prénom : <strong>{{ first_name }}</strong> &nbsp;&nbsp; Nom : <strong>{{ last_name }}</strong></p>
+      <p>Téléphone : <strong>{{ phone }}</strong></p>
+      <p>Email : <strong>{{ email }}</strong></p>
+      <p>Appelé dans ledit contrat « Le Client ».</p>
+      <p><strong>D'autre part.</strong></p>
+    </div>
+
+    <h2>Objet du Contrat</h2>
+    <p>La Société TDS France fournit un service d'assistance et de suivi dans la constitution de dossiers administratifs liés aux titres de séjour, à la naturalisation, au regroupement familial, au visa ou à toute autre démarche similaire.</p>
+
+    <p><strong>Prestations incluses :</strong></p>
+    <ul>
+      <li><strong>Le traitement administratif</strong> du dossier par les conseillers TDS France ;</li>
+      <li><strong>L'analyse et la vérification</strong> des informations et documents fournis ;</li>
+      <li><strong>La préparation et la mise en ordre</strong> des pièces nécessaires au dépôt du dossier ;</li>
+      <li><strong>Un accompagnement personnalisé</strong> tout au long de la démarche ;</li>
+      <li><strong>Le suivi régulier du dossier,</strong> incluant des rendez-vous de suivi destinés à informer le Client de l'évolution de sa demande.</li>
+    </ul>
+
+    <h2>Rémunération</h2>
+    <p>Le Client s'engage à régler à la Société la somme totale de : <strong>{{ montant }} €</strong> pour le service <span class="highlight"><strong>{{ service }}</strong></span></p>
+    <p>correspondant au montant convenu entre les parties lors de la signature du présent contrat.</p>
+    <p>Le paiement pourra être effectué en plusieurs échéances, selon les modalités fixées d'un commun accord.</p>
+    <p>En cas de non-respect du calendrier de paiement, la Société se réserve le droit de <strong>suspendre immédiatement le traitement du dossier</strong> jusqu'à régularisation complète des sommes dues.</p>
+    <p>Si le paiement n'intervient pas <strong>dans un délai maximum de trente (30) jours</strong> à compter de la date d'échéance impayée, le dossier pourra être <strong>clôturé définitivement, sans remboursement</strong>, et sans que la Société puisse être tenue pour responsable d'un retard ou d'un refus administratif lié à cette suspension.</p>
+
+    <h2>Obligations de la Société</h2>
+    <p>La Société s'engage à :</p>
+    <ul>
+      <li>Fournir des informations exactes et complètes ;</li>
+      <li>Transmettre dans les délais les documents nécessaires ;</li>
+      <li>Respecter les échéances de paiement convenues.</li>
+    </ul>
+    <p>Tout retard ou défaut de paiement pourra entraîner la suspension de la prestation.</p>
+
+    <h2>Obligations du Client</h2>
+    <p>Le Client s'engage à :</p>
+    <ul>
+      <li>Fournir des informations précises et complètes nécessaires à la prestation demandée ;</li>
+      <li>Transmettre les documents nécessaires à la mission confiée à la Société ;</li>
+      <li>Respecter les délais de paiement.</li>
+    </ul>
+
+    <h2>Durée, effet et Remboursement</h2>
+    <p>Le présent contrat <strong>prend effet uniquement à compter du règlement complet du montant convenu</strong>, condition préalable à la mise en œuvre des prestations par la Société TDS France.</p>
+    <p>Aucun traitement ni suivi de dossier ne sera engagé avant réception intégrale du paiement.</p>
+    <p>En cas d'interruption volontaire du Client, pour quelque motif que ce soit, <strong>aucun remboursement, même partiel, ne pourra être exigé.</strong></p>
+    <p>Les sommes versées demeurent acquises à la Société TDS France en contrepartie du temps, des démarches et des ressources déjà mobilisées.</p>
+    <p>En cas de manquement grave de l'une des parties à ses obligations, le contrat pourra être résilié <strong>après mise en demeure restée sans effet pendant quinze (15) jours</strong>, sans que cela n'ouvre droit à remboursement des sommes déjà versées.</p>
+
+    <h2>Données personnelles et confidentialité</h2>
+    <p>Les données personnelles sont traitées par TDS France conformément au RGPD (Règlement UE 2016/679). Le Client peut exercer ses droits à : contact@titredesejour.fr. Les informations échangées entre les parties sont strictement confidentielles.</p>
+
+    <h2>Loi applicable et juridiction compétente</h2>
+    <p>Le présent contrat est régi par le droit français. Tout litige non résolu à l'amiable sera soumis aux tribunaux compétents de Paris.</p>
+
+    <div class="signature-block">
+      <table>
+        <tr>
+          <td>
+            La Société TDS FRANCE<br/>Signature<br/><br/>
+            <img src="https://i.imgur.com/Nii41Hr.png" alt="Signature Président" style="width:90px;display:block;margin:0 auto 6px auto;" />
+            J.K Président
+          </td>
+          <td>
+            Le Client<br/>Signature
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="footer">
+      Document généré électroniquement – TDS France
+    </div>
+  </div>
+</body>
+</html>

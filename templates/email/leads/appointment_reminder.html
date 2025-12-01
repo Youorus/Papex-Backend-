@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Rappel de rendez-vous – TDS France</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      @media only screen and (max-width: 600px) {
+        .container {
+          width: 100% !important;
+          padding: 20px !important;
+        }
+        .button {
+          width: 100% !important;
+          display: block !important;
+          text-align: center !important;
+        }
+        .logo {
+          width: 100% !important;
+          max-width: 200px !important;
+        }
+      }
+    </style>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #f6f8fb; font-family: Arial, sans-serif;">
+
+    <table width="100%" bgcolor="#f6f8fb" cellpadding="0" cellspacing="0" style="padding: 40px 0;">
+      <tr>
+        <td align="center">
+          <table class="container" width="600" bgcolor="#ffffff" cellpadding="0" cellspacing="0" style="border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 40px;">
+
+            <!-- Logo -->
+            <tr>
+              <td align="center" style="padding-bottom: 30px;">
+                <img  src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" style="display: block; max-width: 300px; width: 100%; height: auto;" class="logo" />
+              </td>
+            </tr>
+
+            <!-- Message principal -->
+            <tr>
+              <td>
+                <h2 style="color: #2196F3; font-size: 22px; margin-top: 0; text-align: center;">Rappel de votre rendez-vous</h2>
+
+                <p style="font-size: 16px; color: #555; line-height: 1.6;">
+                 Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
+                  <br><br>
+                  Ceci est un rappel concernant votre rendez-vous prévu avec <strong>TDS France</strong>. Voici un rappel des informations :
+                </p>
+
+                <ul style="font-size: 15px; color: #333; line-height: 1.6; padding-left: 20px;">
+                  <li><strong>Date :</strong> {{ appointment.date }}</li>
+                  <li><strong>Heure :</strong> {{ appointment.time }}</li>
+                    <li><strong>Lieu :</strong> {{ appointment.location }}</li>
+                </ul>
+
+                <p style="font-size: 16px; color: #555; line-height: 1.6; margin-top: 30px;">
+                  Nous vous recommandons d’arriver quelques minutes en avance.
+                </p>
+
+                <p style="font-size: 14px; color: #555; margin-top: 20px;">
+                  Un empêchement ou une question, Contactez-nous au <strong>{{ phone }}</strong>.
+                </p>
+
+                <p style="font-size: 14px; color: #777; line-height: 1.6;">
+                  À très bientôt,<br />
+                  L’équipe TDS France
+                </p>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="border-top: 1px solid #eee; padding-top: 20px; font-size: 12px; color: #999; text-align: center;">
+                {{ copyright }}<br />
+                Cet e-mail est automatique, merci de ne pas y répondre directement.
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+
+  </body>
+</html>
