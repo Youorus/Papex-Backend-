@@ -36,6 +36,9 @@ api_urlpatterns = [
     path("avatars/", include("api.profile.urls")),
     # Authentification (login, refresh, register si besoin)
     path("auth/", include("api.custom_auth.urls")),
+
+    path("ping/", include("api.ping.urls"))
+
     # Ajoute d'autres modules ici au besoin
 ]
 

@@ -15,21 +15,32 @@ import logging
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
-IS_PROD = True
 
-# 🔐 Paramètres communs pour les cookies, adaptés dynamiquement
+
+# ---------------------------------------------------------
+# 🔐 PARAMÈTRES CENTRALISÉS — 100% BASÉS SUR settings.py
+# ---------------------------------------------------------
+
+COOKIE_DOMAIN = getattr(settings, "COOKIE_DOMAIN", None)
+COOKIE_SECURE = not settings.DEBUG
+COOKIE_SAMESITE = "None" if COOKIE_SECURE else "Lax"
+
 COMMON_COOKIE_PARAMS = dict(
-    secure=IS_PROD,
-    samesite="None" if IS_PROD else "Lax",
-    domain=".tds-dossier.fr" if IS_PROD else None,
+    secure=COOKIE_SECURE,
+    httponly=True,
+    samesite=COOKIE_SAMESITE,
+    domain=COOKIE_DOMAIN,
     path="/",
 )
 
+ACCESS_MAX_AGE = settings.ACCESS_MAX_AGE
+REFRESH_MAX_AGE = settings.REFRESH_MAX_AGE
+
+
+# ---------------------------------------------------------
+# 🔐 LOGIN VIEW
+# ---------------------------------------------------------
 class LoginView(APIView):
-    """
-    Vue API pour l’authentification d’un utilisateur.
-    Pose les cookies JWT (HttpOnly) et renvoie un 200 avec le rôle dans le body.
-    """
     permission_classes = [AllowAny]
     serializer_class = LoginSerializer
 
@@ -38,6 +49,7 @@ class LoginView(APIView):
             data=request.data,
             context={"request": request},
         )
+
         if not serializer.is_valid():
             logger.warning("❌ Login invalide : %s", serializer.errors)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -59,22 +71,24 @@ class LoginView(APIView):
         response.set_cookie(
             key="access_token",
             value=tokens["access"],
-            httponly=True,
-            max_age=60 * 60,
+            max_age=ACCESS_MAX_AGE,
             **COMMON_COOKIE_PARAMS,
         )
+
         response.set_cookie(
             key="refresh_token",
             value=tokens["refresh"],
-            httponly=True,
-            max_age=60 * 60 * 24 * 7,
+            max_age=REFRESH_MAX_AGE,
             **COMMON_COOKIE_PARAMS,
         )
 
-        logger.info("✅ Login réussi pour %s [%s]", user.email, "PROD" if IS_PROD else "DEV")
+        logger.info(f"✅ Login réussi pour {user.email} (HTTPS={COOKIE_SECURE}, DOMAIN={COOKIE_DOMAIN})")
         return response
 
 
+# ---------------------------------------------------------
+# 🔐 LOGOUT VIEW
+# ---------------------------------------------------------
 @method_decorator(csrf_exempt, name="dispatch")
 class LogoutView(APIView):
     authentication_classes = []
@@ -83,14 +97,24 @@ class LogoutView(APIView):
     def post(self, request, *args, **kwargs):
         response = Response(status=status.HTTP_204_NO_CONTENT)
 
-        domain = ".tds-dossier.fr" if IS_PROD else None
+        response.delete_cookie(
+            "access_token",
+            path="/",
+            domain=COOKIE_DOMAIN
+        )
+        response.delete_cookie(
+            "refresh_token",
+            path="/",
+            domain=COOKIE_DOMAIN
+        )
 
-        response.delete_cookie("access_token", path="/", domain=domain)
-        response.delete_cookie("refresh_token", path="/", domain=domain)
-
+        logger.info("👋 Déconnexion terminée.")
         return response
 
 
+# ---------------------------------------------------------
+# 🔐 REFRESH TOKEN VIEW
+# ---------------------------------------------------------
 class CustomTokenRefreshView(TokenRefreshView):
     def post(self, request, *args, **kwargs):
         refresh_token = request.COOKIES.get("refresh_token")
@@ -110,10 +134,10 @@ class CustomTokenRefreshView(TokenRefreshView):
             response.set_cookie(
                 key="access_token",
                 value=access_token,
-                httponly=True,
-                max_age=60 * 60,
+                max_age=ACCESS_MAX_AGE,
                 **COMMON_COOKIE_PARAMS,
             )
+
             del response.data["access"]
 
         return response
