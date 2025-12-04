@@ -13,9 +13,11 @@ Cette vue inclut les fonctionnalités suivantes :
 from decimal import Decimal, InvalidOperation
 
 from django.utils.text import slugify
+from django.db import transaction
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.exceptions import APIException
 
 from api.contracts.models import Contract
 from api.contracts.permissions import IsContractEditor
@@ -36,25 +38,22 @@ class ContractViewSet(viewsets.ModelViewSet):
     serializer_class = ContractSerializer
     permission_classes = [IsContractEditor]
 
+    @transaction.atomic
     def perform_create(self, serializer):
         """
         Méthode appelée à la création d'un contrat.
-
-        Elle associe le créateur et génère automatiquement le PDF du contrat.
+        La création échoue si le PDF n'est pas généré.
         """
         contract = serializer.save(created_by=self.request.user)
 
         pdf_url = contract.generate_contract_pdf()
-        if pdf_url:
-            # Synchronise le champ localement si tu en as besoin
-            contract.contract_url = pdf_url
-            contract.save(
-                update_fields=["contract_url"]
-            )  # <-- optionnel si déjà maj par update()
+        if not pdf_url:
+            # rollback automatique (pas de contrat créé)
+            raise APIException("Impossible de générer le PDF du contrat.")
 
-        # Sinon, on log une erreur mais on ne bloque pas la création
-        else:
-            print("⚠️ PDF non généré, URL absente.")
+        # Si OK → on met à jour l'URL
+        contract.contract_url = pdf_url
+        contract.save(update_fields=["contract_url"])
 
     @action(detail=True, methods=["get"], url_path="receipts")
     def receipts(self, request, pk=None):
@@ -201,14 +200,6 @@ class ContractViewSet(viewsets.ModelViewSet):
     def refund(self, request, pk=None):
         """
         Applique un remboursement partiel ou total sur un contrat existant.
-
-        - Le montant doit être supérieur à 0
-        - Le total remboursé ne peut pas dépasser le montant déjà payé
-
-        Attendu dans le corps : {
-          "refund_amount": number,
-          "refund_note": string (optionnel)
-        }
         """
         contract = self.get_object()
         raw_amount = request.data.get("refund_amount")
@@ -232,7 +223,6 @@ class ContractViewSet(viewsets.ModelViewSet):
             contract.refund_amount and contract.refund_amount > 0
         )
 
-        # Si tu gères une note de remboursement côté modèle/serializer, on peut la patcher via serializer
         partial_data = {
             "refund_amount": str(contract.refund_amount),
             "is_refunded": contract.is_refunded,
@@ -249,9 +239,6 @@ class ContractViewSet(viewsets.ModelViewSet):
     def _delete_file_from_url(self, bucket_key: str, file_url: str):
         """
         Supprime un fichier du storage MinIO à partir de son URL.
-
-        - `bucket_key` : clé du bucket dans settings.SCW_BUCKETS
-        - `file_url` : URL complète du fichier à supprimer
         """
         try:
             from django.conf import settings
@@ -284,8 +271,6 @@ class ContractViewSet(viewsets.ModelViewSet):
     def _is_valid_refund_amount(self, contract, amount: Decimal) -> tuple[bool, str]:
         """
         Vérifie si un montant de remboursement est valide par rapport au montant payé.
-
-        Retourne un tuple : (valide: bool, message: str)
         """
         already_paid = contract.amount_paid
         already_refunded = contract.refund_amount or Decimal("0.00")
@@ -308,7 +293,6 @@ class ContractViewSet(viewsets.ModelViewSet):
         contract = self.get_object()
 
         try:
-            # Vérifier si une facture existe déjà
             if contract.invoice_url:
                 return Response({
                     "detail": "Une facture existe déjà pour ce contrat.",
@@ -316,7 +300,6 @@ class ContractViewSet(viewsets.ModelViewSet):
                     "existing": True
                 }, status=200)
 
-            # Générer la facture
             invoice_url = contract.generate_invoice_pdf()
 
             if invoice_url:

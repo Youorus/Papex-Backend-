@@ -125,6 +125,16 @@ BUCKET_CONTRACTS = os.getenv("BUCKET_CONTRACTS", "clients-contracts-papex")
 BUCKET_RECEIPTS = os.getenv("BUCKET_RECEIPTS", "clients-payment-receipt-papex")
 BUCKET_INVOICES = os.getenv("BUCKET_INVOICES", "clients-invoices-papex")
 
+
+SCW_BUCKETS = {
+    "avatars": BUCKET_USERS_AVATARS,
+    "documents": BUCKET_CLIENT_DOCUMENTS,
+    "contracts": BUCKET_CONTRACTS,
+    "receipts": BUCKET_RECEIPTS,
+    "invoices": BUCKET_INVOICES,
+}
+
+
 # Si l'utilisateur active AWS/SCW dans son .env → utiliser le backend S3
 if STORAGE_BACKEND == "aws":
     DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
