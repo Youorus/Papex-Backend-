@@ -24,7 +24,7 @@ from api.contracts.permissions import IsContractEditor
 from api.contracts.serializer import ContractSerializer
 from api.payments.models import PaymentReceipt
 from api.payments.serializers import PaymentReceiptSerializer
-from api.utils.email.contracts.tasks import send_contract_email_task, send_contract_signed_notification_task
+from api.utils.email.contracts.tasks import send_contract_email_task
 
 
 class ContractViewSet(viewsets.ModelViewSet):
@@ -127,39 +127,39 @@ class ContractViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
-
-        if updated_fields:
-            instance.save(update_fields=updated_fields)
-            if instance.is_signed:
-                send_contract_signed_notification_task.delay(instance.id)
-
         return Response(self.get_serializer(instance).data)
 
     def destroy(self, request, *args, **kwargs):
         """
-        Supprime un contrat ainsi que tous ses reçus et fichiers PDF associés (contrat et reçus).
-
-        Les suppressions sont faites côté MinIO et en base.
+        Supprime un contrat ainsi que tous ses reçus,
+        le PDF du contrat et le PDF de facture associé.
         """
+
         instance = self.get_object()
 
-        # 1. Suppression des reçus liés (PDF storage + DB)
-        receipts = instance.receipts.all()
-        for receipt in receipts:
+        # 1. Suppression des reçus PDF
+        for receipt in instance.receipts.all():
             if receipt.receipt_url:
                 try:
                     self._delete_file_from_url("receipts", receipt.receipt_url)
                 except Exception as e:
-                    print(f"Erreur suppression du PDF reçu S3: {e}")
+                    print(f"Erreur suppression reçu PDF: {e}")
 
         # 2. Suppression du PDF contrat
         if instance.contract_url:
             try:
                 self._delete_file_from_url("contracts", instance.contract_url)
             except Exception as e:
-                print(f"Erreur suppression du PDF contrat S3: {e}")
+                print(f"Erreur suppression contrat PDF: {e}")
 
-        # 3. Supprime l'instance (et reçus via FK CASCADE)
+        # 3. ❗️ Suppression du PDF facture
+        if instance.invoice_url:
+            try:
+                self._delete_file_from_url("invoices", instance.invoice_url)
+            except Exception as e:
+                print(f"Erreur suppression facture PDF: {e}")
+
+        # 4. Suppression de l'objet (CASCADE receipts)
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="send-email")

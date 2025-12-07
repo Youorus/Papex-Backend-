@@ -3,15 +3,86 @@ from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
 
+# ============================================================================
+# CONSTANTES GÉNÉRIQUES POUR LES REÇUS
+# ============================================================================
+
+class ReceiptConstants:
+    """Constantes centralisées pour la génération des reçus PDF."""
+
+    # ----------------------------------
+    # Informations société
+    # ----------------------------------
+    COMPANY_NAME = "SAS Papiers Express"
+    COMPANY_LEGAL_FORM = "Société par Actions Simplifiée"
+    COMPANY_RCS = "R.C.S Paris 990 924 201"
+    COMPANY_ADDRESS = "39 rue Navier, 75017 Paris"
+    COMPANY_CONTACT = "contact@papiers-express.fr | www.papiers-express.fr"
+
+    # ----------------------------------
+    # URLs ressources
+    # ----------------------------------
+    LOGO_URL = "https://papiers-express.fr/logo.png"
+    SIGNATURE_URL = "https://papiers-express.fr/signature.png"
+    STAMP_URL = "https://papiers-express.fr/cachet2.png"
+
+    # ----------------------------------
+    # Formatage
+    # ----------------------------------
+    DATE_FORMAT = "%d/%m/%Y"
+    CURRENCY_SUFFIX = " €"
+
+    # ----------------------------------
+    # WKHTMLTOPDF CONFIG
+    # ----------------------------------
+    PDF_OPTIONS = {
+        "page-size": "A4",
+        "margin-top": "15mm",
+        "margin-right": "18mm",
+        "margin-bottom": "15mm",
+        "margin-left": "18mm",
+        "encoding": "UTF-8",
+        "no-outline": None,
+        "enable-local-file-access": None,
+    }
+
+    @staticmethod
+    def wkhtmltopdf_path():
+        return getattr(settings, "WKHTMLTOPDF_PATH", None)
+
+
+# ============================================================================
+# HELPERS PDF
+# ============================================================================
+
+def format_amount(value: float) -> str:
+    """formatte un montant en euros, toujours 2 décimales."""
+    try:
+        return f"{float(value):.2f}{ReceiptConstants.CURRENCY_SUFFIX}"
+    except Exception:
+        return f"{value}{ReceiptConstants.CURRENCY_SUFFIX}"
+
+
+def format_date(dt) -> str:
+    """Sécurise l'affichage date."""
+    if not dt:
+        return "—"
+    try:
+        return dt.strftime(ReceiptConstants.DATE_FORMAT)
+    except Exception:
+        return str(dt)
+
+
+# ============================================================================
+# FONCTION PRINCIPALE
+# ============================================================================
 
 def generate_receipt_pdf(receipt) -> bytes:
     """
-    Génère le PDF d'un reçu de paiement
-    avec total du service, payé aujourd'hui,
-    payé cumulé et reste à payer.
+    Génère le PDF d'un reçu de paiement,
+    avec les montants cumulés liés au contrat.
     """
 
-    # Toujours rafraîchir l'instance
     if receipt.pk:
         receipt.refresh_from_db()
 
@@ -19,92 +90,107 @@ def generate_receipt_pdf(receipt) -> bytes:
     lead = client.lead
     contract = receipt.contract
 
-    # --- Calculs comptables ---
+    # =======================================================================
+    # LOGIQUE COMPTABLE FACTORISÉE
+    # =======================================================================
     if contract:
-        # Montant total à payer (après remises)
-        total_amount = getattr(contract, "real_amount_due", None)
-        if total_amount is None:
-            # fallback absolument sûr
-            total_amount = getattr(contract, "amount_due", receipt.amount)
+        # Montant total dû
+        total = getattr(contract, "real_amount_due", None)
+        if total is None:
+            total = getattr(contract, "amount_due", receipt.amount)
 
-        # Total payé (tous les reçus)
+        # Total payé cumulé
         amount_paid_total = getattr(contract, "amount_paid", 0) or 0
 
-        # Payé aujourd’hui (ce reçu)
+        # Montant payé aujourd’hui
         amount_today = receipt.amount
 
-        # Total payé avant ce reçu
-        amount_paid_before = amount_paid_total - amount_today
-        if amount_paid_before < 0:
-            amount_paid_before = 0  # protection
+        # Payé avant ce reçu
+        amount_before = amount_paid_total - amount_today
+        if amount_before < 0:
+            amount_before = 0
 
         # Reste dû
-        remaining = total_amount - amount_paid_total
+        remaining = total - amount_paid_total
         if remaining < 0:
-            remaining = 0  # protection
+            remaining = 0
+
+        service_label = contract.service.label
     else:
-        # Pas de contrat → simple reçu libre
-        total_amount = receipt.amount
+        # reçu simple sans contrat
+        service_label = "—"
+        total = receipt.amount
         amount_today = receipt.amount
         amount_paid_total = receipt.amount
-        amount_paid_before = 0
+        amount_before = 0
         remaining = 0
 
-    # --- Dates ---
-    payment_date_display = (
-        receipt.payment_date.strftime("%d/%m/%Y")
-        if receipt.payment_date else "—"
-    )
-    emission_date = timezone.now().strftime("%d/%m/%Y")
+    # =======================================================================
+    # DATES
+    # =======================================================================
+    payment_date_display = format_date(receipt.payment_date)
+    emission_date = format_date(timezone.now())
 
-    # --- Contexte PDF ---
+    # =======================================================================
+    # CONTEXTE
+    # =======================================================================
     context = {
-        # --- Client ---
+        # --- CLIENT ---
         "client_name": f"{lead.first_name} {lead.last_name}",
         "client_address": getattr(client, "adresse", "—"),
         "client_phone": lead.phone or "—",
         "client_email": lead.email or "—",
 
-        # --- Service ---
-        "service": contract.service.label if contract else "—",
+        # --- SERVICE ---
+        "service": service_label,
 
-        # --- Montants comptables formatés ---
-        "total": f"{total_amount:.2f} €",
-        "amount": f"{amount_today:.2f} €",
-        "amount_before": f"{amount_paid_before:.2f} €",
-        "amount_cumulative": f"{amount_paid_total:.2f} €",
-        "remaining": f"{remaining:.2f} €",
+        # --- MONTANTS ---
+        "total": format_amount(total),
+        "amount": format_amount(amount_today),
+        "amount_before": format_amount(amount_before),
+        "amount_cumulative": format_amount(amount_paid_total),
+        "remaining": format_amount(remaining),
         "mode": receipt.get_mode_display(),
 
-        # --- Dates ---
+        # --- DATES ---
         "date": emission_date,
         "payment_date": payment_date_display,
 
-        # --- Entreprise ---
+        # --- SOCIÉTÉ ---
         "company": {
-            "name": "SAS Papiers Express",
-            "legal_form": "Société par Actions Simplifiée",
-            "rcs": "R.C.S Paris 990 924 201",
-            "address": "39 rue Navier, 75017 Paris",
-            "contact_info": "contact@papiers-express.fr | www.papiers-express.fr",
-            "logo_url": "https://papiers-express.fr/logo.png",
-            "signature_url": "https://papiers-express.fr/signature.jpeg",
+            "name": ReceiptConstants.COMPANY_NAME,
+            "legal_form": ReceiptConstants.COMPANY_LEGAL_FORM,
+            "rcs": ReceiptConstants.COMPANY_RCS,
+            "address": ReceiptConstants.COMPANY_ADDRESS,
+            "contact_info": ReceiptConstants.COMPANY_CONTACT,
+            "logo_url": ReceiptConstants.LOGO_URL,
+            "signature_url": ReceiptConstants.SIGNATURE_URL,
+            "stamp_url": ReceiptConstants.STAMP_URL,
         },
     }
 
-    # --- Rendu HTML ---
-    html_string = render_to_string("recu/receipt_template.html", context)
-
-    # --- Config PDF ---
-    wkhtmltopdf_path = getattr(settings, "WKHTMLTOPDF_PATH", None)
-    config = (
-        pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
-        if wkhtmltopdf_path else None
+    # =======================================================================
+    # RENDU HTML
+    # =======================================================================
+    html_string = render_to_string(
+        "recu/receipt_template.html",
+        context
     )
 
-    # --- Retour PDF ---
-    try:
-        return pdfkit.from_string(html_string, False, configuration=config)
-    except Exception:
-        # 🔥 Optionnel : raise explicit pour debug
-        return pdfkit.from_string(html_string, False)
+    # =======================================================================
+    # CONFIG PDF
+    # =======================================================================
+    cfg = None
+    path = ReceiptConstants.wkhtmltopdf_path()
+    if path:
+        cfg = pdfkit.configuration(wkhtmltopdf=path)
+
+    # =======================================================================
+    # GÉNÉRATION PDF
+    # =======================================================================
+    return pdfkit.from_string(
+        html_string,
+        False,
+        configuration=cfg,
+        options=ReceiptConstants.PDF_OPTIONS
+    )

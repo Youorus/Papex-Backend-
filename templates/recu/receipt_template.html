@@ -78,6 +78,7 @@
       border-collapse: collapse;
       font-size: 10.5pt;
     }
+
     table.info-table td {
       padding: 4px 4px;
     }
@@ -109,12 +110,13 @@
       word-wrap: break-word;
     }
 
-    /* SIGNATURE */
+    /* SIGNATURE + CACHET */
     .signatures {
       margin-top: 35px;
       page-break-inside: avoid;
       text-align: center;
     }
+
     .signature-title {
       font-weight: 700;
       color: #002395;
@@ -122,12 +124,40 @@
       text-decoration: underline;
       margin-bottom: 14px;
     }
+
     .signature-box {
-      height: 110px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
+  position: relative;
+  width: 260px;
+  height: 120px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.stamp-container {
+  position: absolute;
+  top: 4px;
+  transform: translateX(calc(-70% - 100px)); /* + à gauche */
+  width: 260px;
+  text-align: center;
+  z-index: 1;
+  opacity: 0.82;
+}
+
+.stamp {
+  max-width: 200px; /* + grand */
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.signature-img {
+  position: relative;
+  height: 140px; /* signature + grande */
+  display: block;
+  margin: 0 auto;
+  z-index: 2;
+}
+
     .signature-line {
       width: 230px;
       border-bottom: 1px solid #000;
@@ -207,10 +237,18 @@
   <!-- SIGNATURE -->
   <div class="signatures">
     <div class="signature-title">Signature du Président</div>
+
     <div class="signature-box">
-      <img src="{{ company.signature_url }}" style="height:80px;">
+
+      <div class="stamp-container">
+        <img src="{{ company.stamp_url }}" class="stamp" alt="Cachet">
+      </div>
+
+      <img src="{{ company.signature_url }}" class="signature-img" alt="Signature">
     </div>
+
     <div class="signature-line"></div>
+
     <div style="font-weight:700;">Le Président</div>
   </div>
 

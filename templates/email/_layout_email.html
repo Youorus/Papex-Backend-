@@ -1,0 +1,96 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>{% block subject %}{{ company.name }}{% endblock %}</title>
+</head>
+
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#334155;line-height:1.6;">
+
+  <!-- preview text -->
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+    {% block preview %}{% endblock %}
+  </div>
+
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;padding:40px 0;">
+    <tr>
+      <td align="center">
+
+        <table width="100%" cellpadding="0" cellspacing="0" border="0"
+          style="max-width:600px;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0;">
+
+          <!-- Bande tricolore -->
+          <tr>
+            <td>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background:#002395;height:4px;"></td>
+                  <td style="background:#ffffff;height:4px;"></td>
+                  <td style="background:#ED2939;height:4px;"></td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Header -->
+          <tr>
+            <td style="padding:40px 40px 20px;text-align:center;border-bottom:1px solid #f1f5f9;">
+           <img src="{{ company.logo_url }}" alt="{{ company.name }}"
+     style="display:block;margin:0 auto;max-width:200px;" />
+
+
+              <p style="margin:12px 0 0;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#64748b;font-weight:600;">
+                Experts en droit des étrangers
+              </p>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding:40px;">
+              <h1 style="margin:0 0 25px;font-size:24px;color:#1e293b;text-align:center;font-weight:700;">
+                {% block title %}{{ company.name }}{% endblock %}
+              </h1>
+
+              <div style="font-size:16px;color:#475569;">
+                {% block email_content %}{% endblock %}
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f8fafc;padding:30px 40px;text-align:center;border-top:1px solid #e2e8f0;">
+              <p style="margin:0 0 10px;font-weight:600;color:#1e293b;font-size:14px;">
+                {{ company.name }}
+              </p>
+
+              <p style="margin:0 0 20px;font-size:13px;color:#64748b;">
+                {{ company.address }}<br />
+                <a href="https://{{ company.contact }}" style="color:#2563eb;text-decoration:none;">
+                  {{ company.contact }}
+                </a>
+              </p>
+
+              <p style="margin:0;font-size:11px;color:#94a3b8;">
+                Cet email a été envoyé automatiquement. Merci de ne pas répondre directement.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+
+        <p style="text-align:center;font-size:12px;color:#94a3b8;margin-top:20px;">
+          {{ copyright }}
+        </p>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

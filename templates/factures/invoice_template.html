@@ -1,271 +1,272 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <title>Facture</title>
-  <style>
-    @page {
-      size: A4;
-      margin: 20mm 15mm;
-    }
+<meta charset="UTF-8">
+<title>Facture {{ invoice_ref }}</title>
 
-    body {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      font-size: 12px;
-      color: #2e2e2e;
-      background-color: #fff;
-      line-height: 1.5;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-    }
+<style>
+/* CONFIG IMPRESSION */
+@page { size: A4; margin: 18mm 15mm; }
+* {
+  box-sizing: border-box;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 
-    .header-flex {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 25px;
-      gap: 30px;
-    }
+body {
+  font-family: 'Inter', sans-serif;
+  font-size: 11pt;
+  color: #1A1A1A;
+  background:#fff;
+  margin:0;
+}
 
-    .logo-big {
-      height: 90px;
-      width: auto;
-      display: block;
-    }
+/* CONTAINER */
+.container { max-width: 800px; margin: 0 auto; }
 
-    .company-info-right {
-      text-align: right;
-      font-size: 12px;
-      color: #555;
-      line-height: 1.6;
-    }
+/* BANDEAU HAUT */
+.header-top {
+  color:#fff;
+  padding: 14px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.header-top img {
+  height: 80px;
+  filter: brightness(0) invert(1);
+}
 
-    h1 {
-      text-align: center;
-      font-size: 20px;
-      color: #2e2e2e;
-      margin-bottom: 25px;
-      border-bottom: 2px solid #94a3b8;
-      padding-bottom: 8px;
-    }
+.header-top .ref {
+  font-size: 11pt;
+  font-weight:600;
+  text-align:right;
+}
 
-    .invoice-info {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 25px;
-      gap: 20px;
-    }
+/* INFO SOCIETE */
+.company-block {
+  display:flex;
+  justify-content: space-between;
+  padding: 18px 0;
+  border-bottom:1px solid #e5e7eb;
+  margin-bottom: 28px;
+}
+.company-left {
+  font-size:10pt;
+  line-height:1.6;
+  color:#555;
+}
 
-    .invoice-details, .client-info {
-      flex: 1;
-    }
+/* TITRE */
+h1 {
+  font-weight:700;
+  font-size: 22pt;
+  color:#0033A1;
+  text-align:center;
+  margin-bottom: 35px;
+}
 
-    .section-title {
-      font-weight: 600;
-      font-size: 13px;
-      color: #333333;
-      border-left: 4px solid #666666;
-      padding-left: 10px;
-      margin-bottom: 8px;
-    }
+/* GRID DETAILS */
+.grid-two {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:35px;
+  margin-bottom:36px;
+}
+.block-title {
+  font-size:12pt;
+  font-weight:700;
+  color:#0033A1;
+  margin-bottom:12px;
+}
 
-    .info-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 15px;
-    }
+/* TABLE INFOS */
+table.info {
+  width:100%;
+  border-collapse: collapse;
+  font-size:10pt;
+}
+table.info td {
+  padding:5px 0;
+  border-bottom:1px solid #e5e7eb;
+}
+.label {
+  font-weight:600;
+  width:40%;
+}
 
-    .info-table td {
-      padding: 5px 3px;
-      vertical-align: top;
-      border-bottom: 1px solid #e5e7eb;
-    }
+/* TABLE PRODUITS */
+table.products {
+  width:100%;
+  border-collapse:collapse;
+  font-size:10pt;
+  margin-bottom:22px;
+}
+table.products th {
+  background:#0033A1;
+  color:#fff;
+  padding:8px;
+  font-weight:600;
+  text-align:center;
+}
+table.products td {
+  padding:8px;
+  border:1px solid #e5e7eb;
+  text-align:center;
+  background:#f9fafb;
+}
 
-    .info-table td.label {
-      width: 40%;
-      font-weight: bold;
-      color: #2e2e2e;
-    }
+/* REMISE */
+.discount-box {
+  background:#f0f9ff;
+  border-left:4px solid #3b82f6;
+  font-size:10pt;
+  padding:10px;
+  margin-bottom: 18px;
+}
 
-    .products-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 15px 0;
-      border: 1px solid #cbd5e1;
-    }
+/* TOTALS */
+.totals {
+  width:35%;
+  margin-left:auto;
+  font-size:10.5pt;
+}
+.totals table {
+  width:100%;
+  border-collapse:collapse;
+}
+.totals td {
+  padding:7px 0;
+  border-bottom:1px solid #e5e7eb;
+}
+.totals .label-total {
+  font-weight:600;
+}
+.totals .grand-total {
+  font-size:12pt;
+  font-weight:700;
+  color:#0033A1;
+}
 
-    .products-table th,
-    .products-table td {
-      border: 1px solid #cbd5e1;
-      padding: 8px;
-      text-align: center;
-      font-size: 11px;
-    }
-
-    .products-table th {
-      background-color: #333;
-      color: white;
-      font-weight: 600;
-    }
-
-    .products-table td {
-      background-color: #f8fafc;
-    }
-
-    .tva-details {
-      width: 60%;
-      margin-left: auto;
-      margin-top: 15px;
-      border: 1px solid #cbd5e1;
-    }
-
-    .tva-details th,
-    .tva-details td {
-      border: 1px solid #cbd5e1;
-      padding: 6px;
-      text-align: left;
-      font-size: 11px;
-    }
-
-    .tva-details th {
-      background-color: #f1f5f9;
-      font-weight: 600;
-    }
-
-    .payment-info {
-      margin-top: 25px;
-      padding: 15px;
-      background-color: #f8fafc;
-      border: 1px solid #cbd5e1;
-    }
-
-    .payment-info .section-title {
-      margin-top: 0;
-    }
-
-    .footer {
-      text-align: center;
-      font-size: 10px;
-      color: #6b7280;
-      margin-top: 40px;
-      border-top: 1px solid #e5e7eb;
-      padding-top: 15px;
-    }
-
-    .legal-notice {
-      font-size: 9px;
-      color: #9ca3af;
-      margin-top: 10px;
-      line-height: 1.4;
-    }
-  </style>
+/* FOOTER */
+.footer {
+  margin-top:45px;
+  padding-top:12px;
+  border-top:1px solid #e5e7eb;
+  text-align:center;
+  font-size:9pt;
+  color:#777;
+  line-height:1.45;
+}
+</style>
 </head>
+
 <body>
-  <div class="container">
-    <div class="header-flex">
-      <img src="{{ company.logo_url }}" alt="Logo TDS France" class="logo-big" />
-      <div class="company-info-right">
-        <strong>{{ company.name }}</strong><br>
-        {{ company.email }}<br>
-        {{ company.website }}<br>
-        SIRET : {{ company.siret }}<br>
-        TVA : {{ company.tva_number }}
-      </div>
-    </div>
+<div class="container">
 
-    <h1>FACTURE</h1>
+  <!-- BANDEAU -->
+  <div class="header-top">
+    <img src="{{ company.logo_url }}" alt="Logo">
+    <div class="ref">Facture : {{ invoice_ref }}</div>
+  </div>
 
-    <div class="invoice-info">
-      <div class="invoice-details">
-        <div class="section-title">Détails de la Facture</div>
-        <table class="info-table">
-          <tr><td class="label">Numéro :</td><td>{{ invoice_ref }}</td></tr>
-          <tr><td class="label">Date d'émission :</td><td>{{ emission_date }}</td></tr>
-          <tr><td class="label">Date d'échéance :</td><td>{{ due_date }}</td></tr>
-        </table>
-      </div>
-
-      <div class="client-info">
-        <div class="section-title">Client</div>
-        <table class="info-table">
-          <tr><td class="label">Nom :</td><td>{{ client_name }}</td></tr>
-          <tr><td class="label">Adresse :</td><td>{{ client_address }}</td></tr>
-          <tr><td class="label">Téléphone :</td><td>{{ client_phone }}</td></tr>
-          <tr><td class="label">Email :</td><td>{{ client_email }}</td></tr>
-        </table>
-      </div>
-    </div>
-
-<div class="section">
-    <div class="section-title">Détails des Prestations</div>
-
-    <!-- ✅ Affichage de la remise si elle existe -->
-    {% if discount_percent and discount_percent != "0.00%" %}
-    <div style="margin-bottom: 15px; padding: 10px; background-color: #f0f9ff; border-left: 4px solid #3b82f6;">
-        <strong>Remise appliquée : {{ discount_percent }}</strong><br>
-        <small>Montant original : {{ original_amount }} → Montant après remise : {{ total_ttc }}</small>
-    </div>
-    {% endif %}
-
-    <table class="products-table">
-        <thead>
-            <tr>
-                <th>Produits / Services</th>
-                <th>Qté</th>
-                <th>Prix u. HT</th>
-                <th>TVA (%)</th>
-                <th>Total HT</th>
-                <th>Total TTC</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>{{ service }}</td>
-                <td>{{ quantity }}</td>
-                <td>{{ unit_price_ht }}</td>
-                <td>{{ tva_rate }}</td>
-                <td>{{ total_ht }}</td>
-                <td><strong>{{ total_ttc }}</strong></td>
-            </tr>
-        </tbody>
-    </table>
-
-    <table class="tva-details">
-        <thead>
-            <tr>
-                <th>Taux</th>
-                <th>Montant TVA</th>
-                <th>Base HT</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>{{ tva_rate }}</td>
-                <td>{{ montant_tva }}</td>
-                <td>{{ base_ht }}</td>
-            </tr>
-        </tbody>
-    </table>
-</div>
-
-
-    <div class="legal-notice">
-      <p>
-        Pénalités de retard : trois fois le taux annuel d'intérêt légal en vigueur calculé depuis la date d'échéance jusqu'à complet paiement du prix.
-        Indemnité forfaitaire pour frais de recouvrement en cas de retard de paiement : 40 €.
-      </p>
-    </div>
-
-    <div class="footer">
-      {{ company.name }} | SAS, société par actions simplifiée au capital social de 1000,00 € |
-      N° SIREN {{ company.siret }} | N° de TVA {{ company.tva_number }}<br>
-      Généré automatiquement par {{ company.name }}
+  <!-- INFO SOCIETE -->
+  <div class="company-block">
+    <div class="company-left">
+      <strong>{{ company.name }}</strong><br>
+      {{ company.legal_form }}<br>
+      {{ company.rcs }}<br>
+      {{ company.address }}<br>
+      {{ company.contact }}
     </div>
   </div>
+
+  <h1>FACTURE</h1>
+
+  <!-- DET. FACTURE + CLIENT -->
+  <div class="grid-two">
+
+    <!-- FACTURE -->
+    <div>
+      <div class="block-title">Informations</div>
+      <table class="info">
+        <tr><td class="label">Référence :</td><td>{{ invoice_ref }}</td></tr>
+        <tr><td class="label">Émission :</td><td>{{ emission_date }}</td></tr>
+        <tr><td class="label">Échéance :</td><td>{{ due_date }}</td></tr>
+      </table>
+    </div>
+
+    <!-- CLIENT -->
+    <div>
+      <div class="block-title">Client</div>
+      <table class="info">
+        <tr><td class="label">Nom :</td><td>{{ client_name }}</td></tr>
+        <tr><td class="label">Adresse :</td><td>{{ client_address }}</td></tr>
+        <tr><td class="label">Téléphone :</td><td>{{ client_phone }}</td></tr>
+        <tr><td class="label">Email :</td><td>{{ client_email }}</td></tr>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- REMISE -->
+  {% if discount_percent and discount_percent != "0.00%" %}
+  <div class="discount-box">
+    <strong>Remise : {{ discount_percent }}</strong><br>
+    <small>Initial : {{ original_amount }} → Final : {{ total_ttc }}</small>
+  </div>
+  {% endif %}
+
+  <!-- PRODUITS -->
+  <table class="products">
+    <thead>
+      <tr>
+        <th>Prestation</th>
+        <th>Qte</th>
+        <th>Prix HT</th>
+        <th>TVA</th>
+        <th>Total HT</th>
+        <th>Total TTC</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>{{ service }}</td>
+        <td>{{ quantity }}</td>
+        <td>{{ unit_price_ht }}</td>
+        <td>{{ tva_rate }}</td>
+        <td>{{ total_ht }}</td>
+        <td><strong>{{ total_ttc }}</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- TOTALS -->
+  <div class="totals">
+    <table>
+      <tr>
+        <td class="label-total">Base HT</td>
+        <td>{{ base_ht }}</td>
+      </tr>
+      <tr>
+        <td class="label-total">Montant TVA</td>
+        <td>{{ montant_tva }}</td>
+      </tr>
+      <tr>
+        <td class="label-total">Total TTC</td>
+        <td class="grand-total">{{ total_ttc }}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="footer">
+    {{ company.name }} — {{ company.rcs }}<br>
+    {{ company.address }}<br>
+    Généré automatiquement
+  </div>
+
+</div>
 </body>
 </html>

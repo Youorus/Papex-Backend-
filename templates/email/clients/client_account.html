@@ -1,92 +1,61 @@
-<!DOCTYPE html>
-<html lang="fr">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Confirmation de création de votre compte – TDS France</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      @media only screen and (max-width: 600px) {
-        .container {
-          width: 100% !important;
-          padding: 20px !important;
-        }
-        .button {
-          width: 100% !important;
-          display: block !important;
-          text-align: center !important;
-        }
-        .logo {
-          width: 100% !important;
-          max-width: 200px !important;
-        }
-      }
-    </style>
-  </head>
-  <body style="margin: 0; padding: 0; background-color: #f6f8fb; font-family: Arial, sans-serif;">
+{% extends "email/_layout_email.html" %}
 
-    <table width="100%" bgcolor="#f6f8fb" cellpadding="0" cellspacing="0" style="padding: 40px 0;">
-      <tr>
-        <td align="center">
-          <table class="container" width="600" bgcolor="#ffffff" cellpadding="0" cellspacing="0" style="border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 40px;">
+{% block subject %}
+Votre compte client a été créé – {{ company.name }}
+{% endblock %}
 
-            <!-- Logo -->
-            <tr>
-              <td align="center" style="padding-bottom: 30px;">
-                <img src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" style="display: block; max-width: 300px; width: 100%; height: auto;" class="logo" />
-              </td>
-            </tr>
+{% block title %}
+Compte client créé
+{% endblock %}
 
-            <!-- Message principal -->
-            <tr>
-              <td>
-                <h2 style="color: #2196F3; font-size: 22px; margin-top: 0; text-align: center;">
-                  Votre compte a bien été créé
-                </h2>
+{% block email_content %}
 
-                <p style="font-size: 16px; color: #555; line-height: 1.6;">
-                   Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
-                  <br><br>
-                  Nous vous confirmons la création de votre compte chez <strong>TDS France</strong>.
-                  Dans le cadre de nos services d'accompagnement administratif, nous aurons besoin d'utiliser certaines de vos données personnelles et documents.
-                </p>
+<p style="margin:0 0 22px;font-size:16px;color:#334155;">
+  Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
+  <br><br>
+  Nous vous confirmons la création de votre compte chez <strong>{{ company.name }}</strong>.
+  Celui-ci permet de vous accompagner dans toutes vos démarches administratives.
+</p>
 
-                <p style="font-size: 15px; color: #555; line-height: 1.6;">
-                  Conformément au <strong>Règlement Général sur la Protection des Données (RGPD)</strong>, nous vous informons que :
-                </p>
+<p style="margin-bottom:18px;font-size:15px;color:#334155;">
+  Dans le cadre de notre accompagnement et conformément au <strong>Règlement Général sur la Protection des Données (RGPD)</strong>, nous vous informons que :
+</p>
 
-                <ul style="font-size: 15px; color: #333; line-height: 1.6; padding-left: 20px;">
-                  <li>Vos données sont utilisées exclusivement pour le traitement de votre demande.</li>
-                  <li>Vos documents sont conservés de manière sécurisée et confidentielle.</li>
-                  <li>Vous pouvez à tout moment exercer vos droits d’accès, de rectification ou de suppression.</li>
-                </ul>
+<!-- CARD -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="
+    background:#ffffff;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+    overflow:hidden;
+  "
+>
 
-                <p style="font-size: 16px; color: #555; line-height: 1.6; margin-top: 20px;">
-                  En continuant à utiliser nos services, vous acceptez que nous utilisions vos informations pour vous accompagner dans vos démarches administratives.
-                </p>
+  <tr>
+    <td style="padding:16px 22px;font-size:15px;color:#334155;">
+      <ul style="margin:0;padding:0 0 0 18px;">
+        <li>Vos données sont utilisées uniquement pour le traitement de votre dossier.</li>
+        <li>Vos documents sont conservés de manière sécurisée et confidentielle.</li>
+        <li>Vous pouvez exercer vos droits d’accès, de rectification ou de suppression à tout moment.</li>
+      </ul>
+    </td>
+  </tr>
 
-                <p style="font-size: 15px; color: #555;">
-                  Si vous avez la moindre question concernant vos données ou souhaitez retirer votre consentement, vous pouvez nous contacter au <strong>{{ phone }}</strong>.
-                </p>
+</table>
 
-                <p style="font-size: 14px; color: #777; line-height: 1.6; margin-top: 30px;">
-                  Merci pour votre confiance.<br />
-                  L’équipe TDS France
-                </p>
-              </td>
-            </tr>
+<p style="margin-top:22px;font-size:15px;color:#334155;">
+  En poursuivant nos échanges, vous acceptez l’utilisation de vos informations personnelles
+  dans le cadre de l’exécution de votre accompagnement administratif.
+</p>
 
-            <!-- Footer -->
-            <tr>
-              <td style="border-top: 1px solid #eee; padding-top: 20px; font-size: 12px; color: #999; text-align: center;">
-                {{ copyright }}<br />
-                Cet e-mail est généré automatiquement, merci de ne pas y répondre directement.
-              </td>
-            </tr>
+<p style="margin-top:22px;font-size:15px;color:#334155;">
+  Si vous avez la moindre question ou souhaitez retirer votre consentement,
+  contactez-nous au <strong>{{ phone }}</strong>.
+</p>
 
-          </table>
-        </td>
-      </tr>
-    </table>
+<p style="margin-top:28px;font-size:15px;color:#334155;">
+  Merci pour votre confiance,<br>
+  <strong>L’équipe {{ company.name }}</strong>
+</p>
 
-  </body>
-</html>
+{% endblock %}

@@ -1,76 +1,126 @@
 import pdfkit
+from decimal import Decimal, ROUND_HALF_UP
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
-
 from api.contracts.models import Contract
 
 
+# =====================================================
+# 🔹 CONSTANTES PAPIERS-EXPRESS (LOCALES AU MODULE)
+# =====================================================
+
+COMPANY_NAME = "SAS Papiers Express"
+COMPANY_LEGAL_FORM = "Société par Actions Simplifiée"
+COMPANY_RCS = "R.C.S Paris 990 924 201"
+COMPANY_ADDRESS = "39 rue Navier, 75017 Paris"
+COMPANY_CONTACT = "contact@papiers-express.fr | www.papiers-express.fr"
+
+LOGO_URL = "https://papiers-express.fr/logo.png"
+SIGNATURE_URL = "https://papiers-express.fr/signature.png"
+STAMP_URL = "https://papiers-express.fr/cachet2.png"
+
+DATE_FORMAT = "%d/%m/%Y"
+CURRENCY_SUFFIX = " €"
+
+
+# =====================================================
+# 🔹 PDF FACTURE
+# =====================================================
+
 def generate_invoice_pdf(contract: Contract) -> bytes:
     """
-    Génère le PDF de la facture à partir du template HTML et retourne les bytes.
-    - contract : instance de Contract à convertir en facture PDF.
-    - Retour : bytes du PDF généré (prêt à uploader sur MinIO/S3).
+    Génère le PDF de facture Papiers-Express.
+    Retourne les bytes prêts à uploader.
     """
+
+    # Rafraîchit l'instance en BDD
+    contract.refresh_from_db()
+
     client = contract.client
     lead = client.lead
 
-    # ✅ Génération de la référence de facture (3 lettres maj + ID contrat)
-    invoice_ref = f"TDS-{contract.id:06d}"
+    # -----------------------------------------
+    # Numéro de facture (format juridique propre)
+    # -----------------------------------------
+    invoice_ref = f"PAPEX-{contract.id:06d}"
 
-    # ✅ CORRECTION : Utiliser le MONTANT RÉEL (après remise) au lieu de amount_due
-    montant_reel_ttc = contract.real_amount  # C'est le montant après remise
+    # -----------------------------------------
+    # Calcul TVA / HT
+    # -----------------------------------------
+    montant_ttc = contract.real_amount  # Montant TTC après remise
+    taux_tva = Decimal("0.20")
+    divisor = Decimal("1.20")
 
-    from decimal import Decimal, ROUND_HALF_UP
+    montant_ht = (
+        montant_ttc / divisor
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    taux_tva = Decimal("0.20")  # 20%
-    divisor = Decimal("1.20")   # 1 + 20%
+    montant_tva = (
+        montant_ttc - montant_ht
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    montant_ht = (montant_reel_ttc / divisor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    montant_tva = (montant_reel_ttc - montant_ht).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    # -----------------------------------------
+    # Dates
+    # -----------------------------------------
+    emission_date = timezone.now().strftime(DATE_FORMAT)
 
+    # -----------------------------------------
+    # Contexte PDF
+    # -----------------------------------------
     context = {
         "invoice_ref": invoice_ref,
-        "emission_date": timezone.now().strftime("%d/%m/%Y"),
-        "due_date": timezone.now().strftime("%d/%m/%Y"),  # Même date pour émission et échéance
+        "emission_date": emission_date,
+        "due_date": emission_date,
+
+        # ------ Client ------
         "client_name": f"{lead.first_name} {lead.last_name}",
-        "client_address": client.adresse or "Adresse non renseignée",
+        "client_address": client.adresse or "—",
         "client_phone": lead.phone or "—",
         "client_email": lead.email or "—",
-        "service": contract.service,
-        "quantity": 1,  # Par défaut
-        "unit_price_ht": f"{montant_ht:.2f} €",
+
+        # ------ Produit ------
+        "service": contract.service.label if contract.service else "Prestation",
+        "quantity": 1,
+        "unit_price_ht": f"{montant_ht:.2f}{CURRENCY_SUFFIX}",
+        "total_ht": f"{montant_ht:.2f}{CURRENCY_SUFFIX}",
+        "total_ttc": f"{montant_ttc:.2f}{CURRENCY_SUFFIX}",
         "tva_rate": "20%",
-        "total_ht": f"{montant_ht:.2f} €",
-        "total_ttc": f"{montant_reel_ttc:.2f} €",
-        "montant_tva": f"{montant_tva:.2f} €",
-        "base_ht": f"{montant_ht:.2f} €",
-        "discount_percent": f"{contract.discount_percent:.2f}%",  # ✅ Ajout de la remise affichée
-        "original_amount": f"{contract.amount_due:.2f} €",  # ✅ Montant avant remise
+        "montant_tva": f"{montant_tva:.2f}{CURRENCY_SUFFIX}",
+        "base_ht": f"{montant_ht:.2f}{CURRENCY_SUFFIX}",
+
+        # ------ Remise ------
+        "discount_percent": f"{contract.discount_percent:.2f}%",
+        "original_amount": f"{contract.amount_due:.2f}{CURRENCY_SUFFIX}",
+
+        # ------ Société ------
         "company": {
-            "name": "TDS France",
-            "email": "contact@tds-france.fr",
-            "website": "www.tds-france.fr",
-            "siret": "928 184 043",
-            "tva_number": "FR10928B84043",
-            "iban": "FR7630004005760001021633244",
-            "bic": "BNPAFRPPXXX",
-            "logo_url": "https://i.imgur.com/iSzPCvI.jpeg",
+            "name": COMPANY_NAME,
+            "legal_form": COMPANY_LEGAL_FORM,
+            "rcs": COMPANY_RCS,
+            "address": COMPANY_ADDRESS,
+            "contact": COMPANY_CONTACT,
+            "logo_url": LOGO_URL,
+            "signature_url": SIGNATURE_URL,
+            "stamp_url": STAMP_URL,
         },
     }
 
-    html_string = render_to_string("factures/invoice_template.html", context)
+    # -----------------------------------------
+    # Génération HTML
+    # -----------------------------------------
+    html = render_to_string("factures/invoice_template.html", context)
 
-    # ✅ Utilise wkhtmltopdf global si non précisé
+    # -----------------------------------------
+    # WKHTMLTOPDF
+    # -----------------------------------------
     wkhtmltopdf_path = getattr(settings, "WKHTMLTOPDF_PATH", None)
-    config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path) if wkhtmltopdf_path else None
+    config = (
+        pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+        if wkhtmltopdf_path else None
+    )
 
-    try:
-        pdf_bytes = pdfkit.from_string(html_string, False, configuration=config)
-        return pdf_bytes
-    except Exception as e:
-        # Logger l'erreur pour le débogage
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Erreur génération PDF facture #{contract.id}: {e}")
-        raise
+    return (
+        pdfkit.from_string(html, False, configuration=config)
+        if config else pdfkit.from_string(html, False)
+    )

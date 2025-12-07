@@ -1,84 +1,117 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Confirmation de rendez-vous – TDS France</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      @media only screen and (max-width: 600px) {
-        .container {
-          width: 100% !important;
-          padding: 20px !important;
-        }
-        .button {
-          width: 100% !important;
-          display: block !important;
-          text-align: center !important;
-        }
-        .logo {
-          width: 100% !important;
-          max-width: 200px !important;
-        }
-      }
-    </style>
-  </head>
-  <body style="margin: 0; padding: 0; background-color: #f6f8fb; font-family: Arial, sans-serif;">
+{% extends "email/_layout_email.html" %}
 
-    <table width="100%" bgcolor="#f6f8fb" cellpadding="0" cellspacing="0" style="padding: 40px 0;">
-      <tr>
-        <td align="center">
-          <table class="container" width="600" bgcolor="#ffffff" cellpadding="0" cellspacing="0" style="border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 40px;">
+{% block subject %}Votre rendez-vous est confirmé – {{ company.name }}{% endblock %}
+{% block title %}Rendez-vous confirmé{% endblock %}
 
-            <!-- Logo -->
-            <tr>
-              <td align="center" style="padding-bottom: 30px;">
-                <img  src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" style="display: block; max-width: 300px; width: 100%; height: auto;" class="logo" />
-              </td>
-            </tr>
+{% block email_content %}
 
-            <!-- Message principal -->
-            <tr>
-              <td>
-                <h2 style="color: #2196F3; font-size: 22px; margin-top: 0; text-align: center">Votre rendez-vous est confirmé</h2>
-                <p style="font-size: 16px; color: #555; line-height: 1.6;">
-                  Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
-                  <br><br>
-                  Nous vous confirmons que votre rendez-vous avec <strong>TDS France</strong> a bien été enregistré. Voici les détails :
-                </p>
+<p style="margin:0 0 20px;font-size:16px;color:#334155;">
+  Bonjour {{ user.first_name|capfirst }},
+  <br><br>
+  Nous vous confirmons votre rendez-vous avec <strong>{{ company.name }}</strong>. Vous trouverez ci-dessous les informations pratiques.
+</p>
 
-                <ul style="font-size: 15px; color: #333; line-height: 1.6; padding-left: 20px;">
-                  <li><strong>Date :</strong> {{ appointment.date }}</li>
-                  <li><strong>Heure :</strong> {{ appointment.time }}</li>
-                 <li><strong>Lieu :</strong> {{ appointment.location }}</li>
-                </ul>
+<!-- CARD -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="
+    background:#ffffff;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+    padding:0;
+    overflow:hidden;
+  "
+>
 
-                <p style="font-size: 16px; color: #555; line-height: 1.6; margin-top: 30px;">
-                  Merci de vous présenter quelques minutes à l’avance.
-                </p>
+  <!-- HEADER -->
+  <tr>
+    <td style="
+      padding:16px;
+      background:#f1f5f9;
+      font-weight:700;
+      font-size:15px;
+      color:#1e293b;
+      letter-spacing:.4px;
+      text-transform:uppercase;
+    ">
+      Informations du rendez-vous
+    </td>
+  </tr>
 
-                <p style="font-size: 14px; color: #555; margin-top: 20px;">
-                  Pour toute modification ou question, contactez-nous au <strong>{{ phone }}</strong>.
-                </p>
+  <!-- DATE -->
+  <tr>
+    <td style="padding:14px 18px;">
+      <table width="100%">
+        <tr>
+          <td style="font-weight:600;color:#475569;white-space:nowrap;width:38%;">
+            Date:
+          </td>
+          <td style="text-align:right;">
+            <span style="white-space:nowrap;">{{ appointment.date }}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
 
-                <p style="font-size: 14px; color: #777; line-height: 1.6;">
-                  À très bientôt,<br />
-                  L’équipe TDS France
-                </p>
-              </td>
-            </tr>
+  <!-- HEURE -->
+  <tr>
+    <td style="padding:14px 18px;">
+      <table width="100%">
+        <tr>
+          <td style="font-weight:600;color:#475569;white-space:nowrap;width:38%;">
+            Heure:
+          </td>
+          <td style="text-align:right;">
+            <span style="white-space:nowrap;">{{ appointment.time }}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
 
-            <!-- Footer -->
-            <tr>
-              <td style="border-top: 1px solid #eee; padding-top: 20px; font-size: 12px; color: #999; text-align: center;">
-                &copy; {{ year }} TDS France. Tous droits réservés.<br />
-                Cet e-mail est automatique, merci de ne pas y répondre directement.
-              </td>
-            </tr>
+  <!-- ADRESSE -->
+  <tr>
+    <td style="padding:14px 18px;">
+      <table width="100%">
+        <tr>
+          <td style="font-weight:600;color:#475569;white-space:nowrap;width:38%;">
+            Adresse:
+          </td>
+          <td style="text-align:right;">
+            <span style="white-space:nowrap;">{{ company.address }}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
 
-          </table>
-        </td>
-      </tr>
-    </table>
+  {% if company.door_code %}
+  <!-- CODE D’ACCÈS -->
+  <tr>
+    <td style="padding:14px 18px;">
+      <table width="100%">
+        <tr>
+          <td style="font-weight:600;color:#475569;white-space:nowrap;width:38%;">
+            Code d’accès:
+          </td>
+          <td style="text-align:right;">
+            <span style="white-space:nowrap;">{{ company.door_code }}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  {% endif %}
 
-  </body>
-</html>
+</table>
+
+<p style="margin-top:20px;font-size:15px;color:#334155;">
+  Pour toute question ou modification de votre rendez-vous, vous pouvez nous contacter au <strong>{{ company.phone }}</strong>.
+</p>
+
+<p style="margin-top:26px;font-size:15px;color:#334155;">
+  Merci pour votre confiance,<br>
+  <strong>L’équipe {{ company.name }}</strong>
+</p>
+
+{% endblock %}

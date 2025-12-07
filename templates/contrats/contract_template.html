@@ -152,12 +152,39 @@
       font-size: 12pt;
     }
 
-    /* ----- SIGNATURES ----- */
-    .signatures {
-      page-break-inside: avoid;
-      margin-top: 45px;
-      font-size: 12pt;
-    }
+    /* ----- SIGNATURES + CACHET ----- */
+.signature-wrapper {
+  position: relative;
+  width: 260px; /* même largeur que le trait */
+  height: 130px;
+  margin: 0 auto;
+  overflow: hidden; /* important */
+}
+.signature-img {
+  position: relative;
+  height: 150px;
+  display: block;
+  margin: 0 auto;
+  z-index: 2;
+}
+
+.stamp {
+  max-width: 230px;
+  height:auto;
+  display:block;
+  margin:0 auto;
+  opacity: 0.8;
+}
+.stamp-container {
+  position:absolute;
+  top: 8px;
+  left: calc(50% - 15px);
+  transform: translateX(-50%);
+  width:260px;
+  text-align:center;
+  z-index: 1;
+  opacity: 0.80;
+}
 
     table.signature-table {
       width: 100%;
@@ -165,35 +192,6 @@
       border-spacing: 50px 0;
     }
 
-    .signature-block {
-      text-align: center;
-      font-size: 12pt;
-    }
-
-    .signature-title {
-      font-weight: 700;
-      color: #002395;
-      text-decoration: underline;
-      margin-bottom: 22px;
-      font-size: 14pt;
-    }
-
-    .signature-line {
-      width: 260px;
-      height: 70px;
-      border-bottom: 1px solid #000;
-      margin: 12px auto 8px;
-      position: relative;
-    }
-
-    .signature-hint {
-      font-size: 11pt;
-      color: #777;
-      font-style: italic;
-      margin-top: 4px;
-    }
-
-    /* ----- FOOTER ----- */
     .footer {
       text-align: center;
       margin-top: 55px;
@@ -211,6 +209,7 @@
     }
   </style>
 </head>
+
 <body>
 
   <div class="container">
@@ -252,43 +251,39 @@
     </div>
 
     <!-- ARTICLE 1 -->
-<!-- ARTICLE 1 -->
-<div class="section">
-  <div class="section-title">1. Objet du Contrat et Modalités</div>
+    <div class="section">
+      <div class="section-title">1. Objet du Contrat et Modalités</div>
 
-  <p class="section-text">
-    La Société {{ company.name }} s'engage à fournir une assistance administrative
-    et un accompagnement personnalisé dans le cadre du service suivant :
-  </p>
+      <p class="section-text">
+        La Société {{ company.name }} s'engage à fournir une assistance administrative
+        et un accompagnement personnalisé dans le cadre du service suivant :
+      </p>
 
-  <p class="section-text" style="margin-left: 10px;">
-    <span class="highlight"><strong>{{ service }}</strong></span>
-  </p>
+      <p class="section-text" style="margin-left: 10px;">
+        <span class="highlight"><strong>{{ service }}</strong></span>
+      </p>
 
-  <p class="section-text">
-    Dans le cadre de cette prestation, la Société réalisera les actions suivantes :
-  </p>
+      <p class="section-text">
+        Dans le cadre de cette prestation, la Société réalisera les actions suivantes :
+      </p>
 
-  <ul>
-    <li><strong>Constitution complète du dossier</strong></li>
-    <li><strong>Mise en relation avec avocats partenaires</strong></li>
-    <li><strong>Suivi administratif</strong></li>
-    <li><strong>Actualisation du dossier</strong></li>
-  </ul>
-</div>
-
+      <ul>
+        <li><strong>Constitution complète du dossier</strong></li>
+        <li><strong>Mise en relation avec avocats partenaires</strong></li>
+        <li><strong>Suivi administratif</strong></li>
+        <li><strong>Actualisation du dossier</strong></li>
+      </ul>
+    </div>
 
     <!-- ARTICLE 2 -->
     <div class="section">
       <div class="section-title">2. Rémunération</div>
-
       <p class="section-text">
         Le Client s'engage à régler à la Société la somme de
         <span class="highlight">{{ montant }}</span>
         pour la prestation suivante :
         <span class="highlight">{{ service }}</span>.
       </p>
-
       <p class="section-text">
         Si les services d’un avocat sont nécessaires, le Client autorise la Société à régler directement ses honoraires sur le montant payé, le reste constituant la rémunération de la Société.
       </p>
@@ -365,45 +360,56 @@
     Fait en deux exemplaires originaux.
   </p>
 
-  <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+  <table style="width: 100%; border-collapse: collapse;">
     <tr>
 
       <!-- COLONNE GAUCHE – SOCIÉTÉ -->
-      <td style="text-align: center; vertical-align: top; padding: 10px;">
+      <td style="text-align:center; vertical-align:top; padding:10px;">
 
-        <div style="font-weight: 700; font-size: 14pt; color: #002395; text-decoration: underline; margin-bottom: 25px;">
+        <div style="font-weight:700; font-size:14pt; color:#002395; text-decoration:underline; margin-bottom:25px;">
           {{ company.name }}
         </div>
 
-        <div style="height: 110px; display: flex; justify-content: center; align-items: center;">
-          <img src="{{ company.signature_url }}" alt="Signature" style="height: 100px;">
-        </div>
+        <!-- Bloc signature Société -->
+      <div class="signature-wrapper">
+  <img src="{{ company.signature_url }}" alt="Signature" class="signature-img">
 
-        <div style="width: 260px; border-bottom: 1px solid #000; margin: 25px auto 10px;"></div>
+  <div class="stamp-container">
+    <img src="{{ company.stamp_url }}" alt="Cachet" class="stamp">
+  </div>
+</div>
 
-        <div style="font-weight: 700; font-size: 12pt;">
-          Le Président
+
+        <!-- TRAIT + LE PRESIDENT alignés -->
+        <div style="margin-top:15px;">
+          <div style="width:260px; border-bottom:1px solid #000; margin:0 auto 8px;"></div>
+          <div style="font-weight:700; font-size:12pt; margin-top:0;">
+            Le Président
+          </div>
         </div>
 
       </td>
 
       <!-- COLONNE DROITE – CLIENT -->
-      <td style="text-align: center; vertical-align: top; padding: 10px;">
+      <td style="text-align:center; vertical-align:top; padding:10px;">
 
-        <div style="font-weight: 700; font-size: 14pt; color: #002395; text-decoration: underline; margin-bottom: 25px;">
+        <div style="font-weight:700; font-size:14pt; color:#002395; text-decoration:underline; margin-bottom:25px;">
           Le Client
         </div>
 
-        <div style="height: 110px;"></div>
-
-        <div style="width: 260px; border-bottom: 1px solid #000; margin: 25px auto 4px;"></div>
-
-        <div style="font-style: italic; color: #777; margin-bottom: 10px; font-size: 11pt;">
+        <div style="font-style:italic; color:#777; font-size:11pt; margin-bottom:5px;">
           Lu et approuvé
         </div>
 
-        <div style="font-weight: 700; font-size: 12pt;">
-          {{ first_name }} {{ last_name }}
+        <!-- **Même hauteur que signature Président** -->
+        <div style="height:96px;"></div>
+
+        <!-- TRAIT + NOM alignés -->
+        <div style="margin-top:15px;">
+          <div style="width:260px; border-bottom:1px solid #000; margin:0 auto 8px;"></div>
+          <div style="font-weight:700; font-size:12pt; margin-top:0;">
+            {{ first_name }} {{ last_name }}
+          </div>
         </div>
 
       </td>
@@ -411,6 +417,7 @@
     </tr>
   </table>
 </div>
+
 
 
     <!-- FOOTER -->

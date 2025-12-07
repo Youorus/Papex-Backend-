@@ -63,30 +63,3 @@ def mark_absent_leads():
             logger.info(f"📧 Mail d'absence envoyé à {lead.email} (lead #{lead.id})")
         else:
             logger.warning(f"⚠️ Email manquant pour lead #{lead.id}, pas d'envoi possible.")
-
-
-@shared_task
-def send_daily_appointments_report_task():
-    """
-    Génère et envoie un rapport PDF des rendez-vous planifiés ou confirmés du jour.
-    """
-    from django.utils import timezone
-    from api.lead_status.models import LeadStatus
-    from api.leads.constants import RDV_PLANIFIE, RDV_CONFIRME
-    from api.utils.email.leads.daily_report import send_daily_appointment_report
-
-    today = timezone.localdate()
-    start = timezone.make_aware(datetime.combine(today, datetime.min.time()))
-    end = timezone.make_aware(datetime.combine(today, datetime.max.time()))
-
-    leads = Lead.objects.filter(
-        appointment_date__range=(start, end),
-        status__code__in=[RDV_PLANIFIE, RDV_CONFIRME],
-    ).select_related("status")
-
-    if not leads.exists():
-        logger.info("📭 Aucun rendez-vous planifié ou confirmé aujourd'hui.")
-        return
-
-    recipient = send_daily_appointment_report(list(leads))
-    logger.info(f"📄 Rapport PDF envoyé à {recipient} ({leads.count()} RDV)")

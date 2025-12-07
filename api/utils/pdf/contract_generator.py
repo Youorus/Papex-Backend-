@@ -21,13 +21,13 @@ class ContractConstants:
     COMPANY_RCS = "R.C.S Paris 990 924 201"
     COMPANY_ADDRESS = "39 rue Navier, 75017 Paris"
     COMPANY_CONTACT = "contact@papiers-express.fr | www.papiers-express.fr"
-
+    STAMP_URL = "https://papiers-express.fr/cachet2.png"
     # URLs des ressources
     LOGO_URL = "https://papiers-express.fr/logo.png"
-    SIGNATURE_URL = "https://papiers-express.fr/signature.jpeg"
+    SIGNATURE_URL = "https://papiers-express.fr/signature.png"
 
     # Préfixe de référence du contrat
-    CONTRACT_REF_PREFIX = "PAPEX-C"
+    CONTRACT_REF_PREFIX = "PAPEX"
 
     # Liste factorisée des services
     SERVICES_LIST = [
@@ -113,6 +113,7 @@ def generate_contract_pdf(contract: Contract) -> bytes:
             "contact_info": ContractConstants.COMPANY_CONTACT,
             "logo_url": ContractConstants.LOGO_URL,
             "signature_url": ContractConstants.SIGNATURE_URL,
+            "stamp_url": ContractConstants.STAMP_URL,
         },
 
         # Informations de réduction éventuelles

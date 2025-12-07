@@ -13,17 +13,13 @@ logger = logging.getLogger(__name__)
 def send_html_email(to_email, subject, template_name, context, attachments=None):
     """
     Envoie un email HTML à l'adresse fournie.
-    - to_email: email du destinataire
-    - subject: sujet
-    - template_name: chemin du template HTML Django
-    - context: contexte pour le rendu du template
-    - attachments: liste de dicts {filename, content, mimetype} (optionnel)
     """
     if not to_email:
         logger.warning("Aucun email fourni.")
         return
 
     html_content = render_to_string(template_name, context)
+
     msg = EmailMultiAlternatives(
         subject=subject,
         body="",
@@ -32,7 +28,7 @@ def send_html_email(to_email, subject, template_name, context, attachments=None)
     )
     msg.attach_alternative(html_content, "text/html")
 
-    # Ajout des pièces jointes si présentes
+    # Pièces jointes (optionnel)
     if attachments:
         for att in attachments:
             filename = att.get("filename")
@@ -46,37 +42,71 @@ def send_html_email(to_email, subject, template_name, context, attachments=None)
     msg.send()
 
 
-TDS_FRANCE_ADDRESS = (
-    "11 rue de l'Arrivée, 75015 Paris (En face du magasin C&A, dans la galerie)"
-)
-TDS_FRANCE_PHONE = "06 95 59 70 43"
-TDS_FRANCE_CONTACT_EMAIL = "contact@tds-france.fr"
-TDS_FRANCE_TEAM_NAME = "TDS France"
-TDS_COPYRIGHT = f"© {timezone.now().year} TDS France. Tous droits réservés."
+# ================================
+# Branding : Papiers Express
+# ================================
+
+COMPANY_NAME = "Papiers-Express"
+COMPANY_LEGAL_FORM = "Société par Actions Simplifiée"
+COMPANY_RCS = "R.C.S Paris 990 924 201"
+COMPANY_ADDRESS = "39 rue Navier, 75017 Paris"
+COMPANY_CONTACT = "contact@papiers-express.fr | www.papiers-express.fr"
+COMPANY_PHONE = "07 56 98 11 34 / 01 42 59 60 08"
+COMPANY_DOOR_CODE = "36B59"
+
+# Assets
+LOGO_URL = "https://papiers-express.fr/logo.png"
+SIGNATURE_URL = "https://papiers-express.fr/signature.png"
+
+COMPANY_COPYRIGHT = f"© {timezone.now().year} {COMPANY_NAME}. Tous droits réservés."
 
 
-"""
-Construit le contexte de base commun à tous les e-mails envoyés par TDS France.
-Ce contexte inclut :
-- L'utilisateur (lead) concerné
-- L'année en cours
-- Le copyright TDS France
-- Le numéro de téléphone de contact
-
-:param lead: Objet représentant le lead (doit avoir first_name, last_name, etc.)
-:return: Dictionnaire de contexte pour le template HTML
-"""
-
+# ================================
+# Contexte base email
+# ================================
 
 def _base_context(lead: object) -> dict:
+    """
+    Construit le contexte commun à tous les emails.
+    """
     year = timezone.now().year
-    return {
-        "user": lead,
-        "year": year,
-        "copyright": f"© {year} TDS France. Tous droits réservés.",
-        "phone": TDS_FRANCE_PHONE,
+
+    company_data = {
+        "name": COMPANY_NAME,
+        "legal_form": COMPANY_LEGAL_FORM,
+        "rcs": COMPANY_RCS,
+        "address": COMPANY_ADDRESS,
+        "contact": COMPANY_CONTACT,
+        "phone": COMPANY_PHONE,
+        "door_code": COMPANY_DOOR_CODE,
+        "logo_url": LOGO_URL,
+        "signature": SIGNATURE_URL,
+        "copyright": f"© {year} {COMPANY_NAME}. Tous droits réservés.",
     }
 
+    return {
+        # Utilisateur
+        "user": lead,
+        "year": year,
+
+        # Objet entreprise (recommandé)
+        "company": company_data,
+
+        # Accès direct (compatibilité ascendante)
+        "phone": COMPANY_PHONE,
+        "company_name": COMPANY_NAME,
+        "address": COMPANY_ADDRESS,
+        "contact": COMPANY_CONTACT,
+        "door_code": COMPANY_DOOR_CODE,
+
+        # Footer
+        "copyright": company_data["copyright"],
+    }
+
+
+# ================================
+# Contexte spécifique (RDV)
+# ================================
 
 def _build_context(
     lead,
@@ -86,9 +116,15 @@ def _build_context(
     is_jurist=False,
     extra: dict = None,
 ) -> dict:
+    """
+    Construit un contexte complet incluant :
+    - Données utilisateur
+    - Informations rendez-vous
+    - Données entreprise
+    """
     context = _base_context(lead)
 
-    # Si date de rendez-vous présente
+    # RDV si fourni
     if dt:
         date_str, time_str = get_french_datetime_strings(dt)
         with_label, with_name = (
@@ -104,7 +140,7 @@ def _build_context(
             "with_name": with_name or "",
         }
 
-    # Ajout de contenu spécifique à un email
+    # Données spécifiques à l'email
     if extra:
         context.update(extra)
 

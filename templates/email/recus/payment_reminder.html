@@ -1,70 +1,98 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <title>Rappel de paiement – TDS France</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <style>
-    @media only screen and (max-width: 600px) {
-      .container { width: 100% !important; padding: 20px !important; }
-      .logo { width: 100% !important; max-width: 200px !important; }
-    }
-  </style>
-</head>
-<body style="margin:0; padding:0; background-color:#f6f8fb; font-family: Arial, sans-serif;">
-  <table width="100%" bgcolor="#f6f8fb" cellpadding="0" cellspacing="0" style="padding: 40px 0;">
-    <tr>
-      <td align="center">
-        <table class="container" width="600" bgcolor="#ffffff" cellpadding="0" cellspacing="0" style="border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 40px;">
-          <!-- Logo -->
-          <tr>
-            <td align="center" style="padding-bottom: 30px;">
-              <img src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" style="display: block; max-width: 300px; width: 100%; height: auto;" class="logo" />
-            </td>
-          </tr>
-          <!-- Message principal -->
-          <tr>
-            <td>
-              <h2 style="color:#0e7490; font-size:22px; margin-top:0; text-align:center">
-                Rappel : Échéance de paiement
-              </h2>
-              <p style="font-size:16px; color:#555; line-height:1.6;">
-                Bonjour {{ lead.first_name|capfirst }} {{ lead.last_name|capfirst }},
-                <br><br>
-                Ceci est un rappel concernant une échéance de paiement pour votre contrat avec <b>TDS France</b>.
-              </p>
-              <ul style="font-size:15px; color:#333; line-height:1.6; padding-left:20px;">
-                <li><b>Montant dû :</b> {{ amount }}</li>
-                <li><b>Date d’échéance :</b> {{ due_date }}</li>
-                <li><b>Service :</b> {{ receipt.contract.service.label }}</li>
-              </ul>
-              <div style="margin:20px 0; text-align:center;">
-                <span style="display:inline-block; background:#0e7490; color:#fff; padding:12px 24px; font-size:17px; border-radius:6px; font-weight:bold;">
-                  Échéance : {{ due_date }}
-                </span>
-              </div>
-              <p style="font-size:16px; color:#555; line-height:1.6;">
-                Merci de prendre rendez-vous avec nous pour  procéder au paiement dans les temps afin d'éviter toute interruption de votre dossier.
-              </p>
-              <p style="font-size:14px; color:#777; line-height:1.6;">
-                  Notre équipe reste à votre disposition au <strong>{{ phone }}</strong> pour toute demande ou information complémentaire.
-              </p>
-              <p style="font-size:14px; color:#777; line-height:1.6;">
-                Cordialement,<br/>
-                L’équipe TDS France
-              </p>
-            </td>
-          </tr>
-          <!-- Footer -->
-          <tr>
-            <td style="border-top: 1px solid #eee; padding-top: 20px; font-size: 12px; color: #999; text-align: center;">
-             {{ copyright }}<br />
-              Cet e-mail est automatique, merci de ne pas y répondre directement.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
+{% extends "email/_layout_email.html" %}
+
+{% block subject %}
+Rappel : échéance de paiement – {{ company.name }}
+{% endblock %}
+
+{% block title %}
+Échéance de paiement
+{% endblock %}
+
+{% block email_content %}
+
+<p style="margin:0 0 22px;font-size:16px;color:#334155;">
+  Bonjour {{ lead.first_name|capfirst }} {{ lead.last_name|capfirst }},
+  <br><br>
+  Ceci est un rappel concernant une <strong>échéance de paiement</strong> liée à votre dossier chez {{ company.name }}.
+  Vous trouverez ci-dessous les informations associées.
+</p>
+
+<!-- CARD -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="
+    background:#ffffff;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+    overflow:hidden;
+  "
+>
+
+  <!-- HEADER -->
+  <tr>
+    <td style="
+      padding:16px;
+      background:#e0f2fe;
+      font-weight:700;
+      font-size:15px;
+      color:#075985;
+      text-transform:uppercase;
+      letter-spacing:.4px;
+    ">
+      Informations de paiement
+    </td>
+  </tr>
+
+  <!-- MONTANT -->
+  <tr>
+    <td style="padding:14px 20px;font-size:15px;color:#334155;">
+      <strong>Montant dû :</strong> {{ amount }}
+    </td>
+  </tr>
+
+  <!-- DATE D'ÉCHÉANCE -->
+  <tr>
+    <td style="padding:14px 20px;font-size:15px;color:#334155;">
+      <strong>Date d’échéance :</strong> {{ due_date }}
+    </td>
+  </tr>
+
+  <!-- SERVICE -->
+  <tr>
+    <td style="padding:14px 20px;font-size:15px;color:#334155;">
+      <strong>Service :</strong> {{ receipt.contract.service.label }}
+    </td>
+  </tr>
+
+</table>
+
+<!-- BADGE ÉCHÉANCE -->
+<div style="margin:22px 0;text-align:center;">
+  <span style="
+    display:inline-block;
+    background:#0e7490;
+    color:#fff;
+    padding:10px 24px;
+    font-size:16px;
+    border-radius:8px;
+    font-weight:600;
+  ">
+    Échéance : {{ due_date }}
+  </span>
+</div>
+
+<p style="margin-top:22px;font-size:15px;color:#334155;">
+  Afin d’éviter toute interruption dans le traitement de votre dossier,
+  merci de procéder au paiement dans les temps.
+</p>
+
+<p style="margin-top:20px;font-size:15px;color:#334155;">
+  Pour toute question ou information complémentaire,
+  contactez-nous au <strong>{{ phone }}</strong>.
+</p>
+
+<p style="margin-top:28px;font-size:15px;color:#334155;">
+  Cordialement,<br>
+  <strong>L’équipe {{ company.name }}</strong>
+</p>
+
+{% endblock %}

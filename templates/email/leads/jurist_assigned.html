@@ -1,39 +1,53 @@
-<!-- templates/email/leads/jurist_assigned.html -->
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Juriste assigné – TDS France</title>
-  </head>
-  <body style="background-color:#f6f8fb; font-family: Arial, sans-serif; padding: 40px;">
-    <table width="100%" bgcolor="#ffffff" cellpadding="0" cellspacing="0" style="border-radius: 8px; padding: 40px;">
-      <tr>
-        <td align="center">
-          <img src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" style="max-width: 300px;" />
-          <h2 style="color:#0e7490;">Un juriste vous a été assigné</h2>
-        </td>
-      </tr>
-      <tr>
-        <td>
-          <p style="font-size:16px; color:#333;">Bonjour {{ lead.first_name|capfirst }} {{ lead.last_name|capfirst }},</p>
-          <p style="font-size:16px; color:#555; line-height:1.6;">
-            Nous vous informons qu’un juriste a été assigné à votre dossier.
-            Il assurera le suivi et pourra intervenir pour toute demande nécessitant une expertise juridique.
-          </p>
-          <p style="font-size:16px; color:#333;">
-            <b>Juriste référent :</b><br/>
-            {{ jurist.first_name }} {{ jurist.last_name }}
-          </p>
-          <p style="font-size:16px; color:#555;">
-            Vous serez recontacté(e) si un rendez-vous est nécessaire. <br/>
-            En attendant, vous pouvez nous joindre pour toute question.
-          </p>
-          <p style="font-size:14px; color:#777;">
-            L’équipe TDS France<br/>
-            Cet e-mail est automatique, merci de ne pas y répondre directement.
-          </p>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
+{% extends "email/_layout_email.html" %}
+
+{% block subject %}Un juriste a été assigné à votre dossier – {{ company.name }}{% endblock %}
+{% block title %}Juriste assigné{% endblock %}
+
+{% block email_content %}
+
+<p style="margin:0 0 20px;font-size:16px;color:#334155;">
+  Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
+  <br><br>
+  Nous vous informons qu’un juriste a été assigné à votre dossier. Il est désormais votre interlocuteur privilégié pour toute demande nécessitant une expertise juridique.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="
+    background:#ffffff;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+    padding:0;
+    overflow:hidden;
+  "
+>
+  <tr>
+    <td style="
+      padding:16px;
+      background:#e0f2fe;
+      font-weight:700;
+      font-size:15px;
+      color:#075985;
+      letter-spacing:.4px;
+      text-transform:uppercase;
+    ">
+      Juriste référent
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:16px 20px;font-size:15px;color:#334155;">
+      {{ jurist.first_name }} {{ jurist.last_name }}
+    </td>
+  </tr>
+</table>
+
+<p style="margin-top:20px;font-size:15px;color:#334155;">
+  Si un rendez-vous est nécessaire, nous vous recontacterons directement pour fixer une date.  
+  En attendant, notre équipe reste à votre disposition pour toute question.
+</p>
+
+<p style="margin-top:26px;font-size:15px;color:#334155;">
+  Cordialement,<br>
+  <strong>L’équipe {{ company.name }}</strong>
+</p>
+
+{% endblock %}

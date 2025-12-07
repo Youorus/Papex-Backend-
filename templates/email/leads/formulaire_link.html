@@ -1,87 +1,69 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Formulaire de suivi – TDS France</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      @media only screen and (max-width: 600px) {
-        .container {
-          width: 100% !important;
-          padding: 20px !important;
-        }
-        .logo {
-          width: 100% !important;
-          max-width: 200px !important;
-        }
-      }
-      .button {
-        display: inline-block;
-        padding: 12px 24px;
-        font-size: 16px;
-        color: #fff !important;
-        background-color: #3b82f6;
-        border-radius: 6px;
-        text-decoration: none;
-        margin-top: 20px;
-      }
-    </style>
-  </head>
+{% extends "email/_layout_email.html" %}
 
-  <body style="margin: 0; padding: 0; background-color: #f6f8fb; font-family: Arial, sans-serif;">
-    <table width="100%" bgcolor="#f6f8fb" cellpadding="0" cellspacing="0" style="padding: 40px 0;">
-      <tr>
-        <td align="center">
-          <table class="container" width="600" bgcolor="#ffffff" cellpadding="0" cellspacing="0" style="border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 40px;">
+{% block subject %}Complétez votre formulaire – {{ company.name }}{% endblock %}
+{% block title %}Formulaire de suivi{% endblock %}
 
-            <!-- Logo -->
-            <tr>
-              <td align="center" style="padding-bottom: 30px;">
-                <img src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" style="display: block; max-width: 300px; width: 100%; height: auto;" class="logo" />
-              </td>
-            </tr>
+{% block email_content %}
 
-            <!-- Message principal -->
-            <tr>
-              <td>
-                <h2 style="color: #1f2937; font-size: 22px; margin-top: 0; text-align: center;">Merci de compléter votre formulaire</h2>
+<p style="margin:0 0 20px;font-size:16px;color:#334155;">
+  Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
+  <br><br>
+  Merci pour votre prise de contact avec <strong>{{ company.name }}</strong>.  
+  Afin de mieux comprendre votre situation et assurer un suivi adapté, nous vous invitons à compléter le formulaire ci-dessous.
+</p>
 
-                <p style="font-size: 16px; color: #555; line-height: 1.6;">
-                  Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
-                  <br /><br />
-                  Nous vous remercions pour votre prise de contact avec <strong>TDS France</strong>. Afin de mieux comprendre votre situation, nous vous invitons à remplir le formulaire suivant :
-                </p>
+<!-- CARD -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="
+    background:#ffffff;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+    padding:24px;
+    overflow:hidden;
+    text-align:center;
+  "
+>
 
-                <p style="text-align: center;">
-                  <a href="{{ formulaire_url }}" target="_blank" class="button">Accéder au formulaire</a>
-                </p>
+  <!-- TITRE -->
+  <tr>
+    <td style="font-weight:700;font-size:17px;color:#1f2937;padding-bottom:16px;">
+      Formulaire de suivi
+    </td>
+  </tr>
 
-                <p style="font-size: 14px; color: #555; margin-top: 30px; line-height: 1.6;">
-                  Ce formulaire nous permettra de mieux suivre votre dossier. Merci de le remplir avec sincérité et précision.
-                </p>
+  <!-- BUTTON -->
+  <tr>
+    <td>
+      <a href="{{ formulaire_url }}" target="_blank"
+        style="
+          display:inline-block;
+          padding:12px 24px;
+          font-size:16px;
+          color:#ffffff !important;
+          background-color:#3b82f6;
+          border-radius:6px;
+          text-decoration:none;
+          margin-top:10px;
+        "
+      >
+        Accéder au formulaire
+      </a>
+    </td>
+  </tr>
 
-                <p style="font-size: 14px; color: #777; line-height: 1.6;">
-                  En cas de difficulté, vous pouvez nous contacter au <strong>{{ phone }}</strong>.
-                </p>
+</table>
 
-                <p style="font-size: 14px; color: #777; line-height: 1.6;">
-                  À très bientôt,<br />
-                  L’équipe TDS France
-                </p>
-              </td>
-            </tr>
+<p style="margin-top:20px;font-size:15px;color:#334155;">
+  Les informations que vous renseignerez nous permettront de mieux analyser votre demande et de vous accompagner efficacement.
+</p>
 
-            <!-- Footer -->
-           <tr>
-              <td style="border-top: 1px solid #eee; padding-top: 20px; font-size: 12px; color: #999; text-align: center;">
-                {{ copyright }}<br />
-                Cet e-mail est automatique, merci de ne pas y répondre directement.
-              </td>
-            </tr>
+<p style="margin-top:20px;font-size:15px;color:#334155;">
+  Si vous rencontrez la moindre difficulté, vous pouvez nous joindre au <strong>{{ phone }}</strong>.
+</p>
 
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
+<p style="margin-top:26px;font-size:15px;color:#334155;">
+  À très bientôt,<br>
+  <strong>L’équipe {{ company.name }}</strong>
+</p>
+
+{% endblock %}

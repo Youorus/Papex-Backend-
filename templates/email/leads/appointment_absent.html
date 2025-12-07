@@ -1,80 +1,104 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Rendez-vous manqué – TDS France</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>
-      @media only screen and (max-width: 600px) {
-        .container {
-          width: 100% !important;
-          padding: 20px !important;
-        }
-        .logo {
-          width: 100% !important;
-          max-width: 200px !important;
-        }
-      }
-    </style>
-  </head>
-  <body style="margin: 0; padding: 0; background-color: #f6f8fb; font-family: Arial, sans-serif;">
+{% extends "email/_layout_email.html" %}
 
-    <table width="100%" bgcolor="#f6f8fb" cellpadding="0" cellspacing="0" style="padding: 40px 0;">
-      <tr>
-        <td align="center">
-          <table class="container" width="600" bgcolor="#ffffff" cellpadding="0" cellspacing="0" style="border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 40px;">
+{% block subject %}Rendez-vous manqué – {{ company.name }}{% endblock %}
+{% block title %}Rendez-vous manqué{% endblock %}
 
-            <!-- Logo -->
-            <tr>
-              <td align="center" style="padding-bottom: 30px;">
-                <img  src="https://i.imgur.com/iSzPCvI.jpeg" alt="TDS France" style="display: block; max-width: 300px; width: 100%; height: auto;" class="logo" />
-              </td>
-            </tr>
+{% block email_content %}
 
-            <!-- Message principal -->
-            <tr>
-              <td>
-                <h2 style="color: #f44336; font-size: 22px; margin-top: 0; text-align: center;">Vous avez manqué votre rendez-vous</h2>
+<p style="margin:0 0 20px;font-size:16px;color:#334155;">
+  Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
+  <br><br>
+  Nous avons constaté que vous n’avez pas pu assister à votre rendez-vous prévu avec <strong>{{ company.name }}</strong>.
+</p>
 
-                <p style="font-size: 16px; color: #555; line-height: 1.6;">
-                 Bonjour {{ user.first_name|capfirst }} {{ user.last_name|capfirst }},
-                  <br><br>
-                  Nous avons constaté que vous n’avez pas pu vous présenter à votre rendez-vous prévu avec <strong>TDS France</strong> :
-                </p>
+<!-- CARD -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="
+    background:#ffffff;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+    padding:0;
+    overflow:hidden;
+  "
+>
 
-                <ul style="font-size: 15px; color: #333; line-height: 1.6; padding-left: 20px;">
-                  <li><strong>Date :</strong> {{ appointment.date }}</li>
-                  <li><strong>Heure :</strong> {{ appointment.time }}</li>
-                  <li><strong>Lieu :</strong> {{ appointment.location }}</li>
-                </ul>
+  <!-- HEADER -->
+  <tr>
+    <td style="
+      padding:16px;
+      background:#fee2e2;
+      font-weight:700;
+      font-size:15px;
+      color:#991b1b;
+      letter-spacing:.4px;
+      text-transform:uppercase;
+    ">
+      Détails du rendez-vous
+    </td>
+  </tr>
 
-                <p style="font-size: 16px; color: #555; line-height: 1.6; margin-top: 30px;">
-                  Si vous avez rencontré un empêchement, n'hésitez pas à reprendre contact avec nous afin de reprogrammer un nouveau rendez-vous.
-                </p>
+  <!-- DATE -->
+  <tr>
+    <td style="padding:14px 18px;">
+      <table width="100%">
+        <tr>
+          <td style="font-weight:600;color:#475569;width:38%;white-space:nowrap;">
+            Date:
+          </td>
+          <td style="text-align:right;">
+            <span style="white-space:nowrap;">{{ appointment.date }}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
 
-                <p style="font-size: 14px; color: #555; margin-top: 20px;">
-                  Notre équipe reste à votre disposition au <strong>{{ phone }}</strong> pour toute demande ou information complémentaire.
-                </p>
+  <!-- HEURE -->
+  <tr>
+    <td style="padding:14px 18px;">
+      <table width="100%">
+        <tr>
+          <td style="font-weight:600;color:#475569;width:38%;white-space:nowrap;">
+            Heure:
+          </td>
+          <td style="text-align:right;">
+            <span style="white-space:nowrap;">{{ appointment.time }}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
 
-                <p style="font-size: 14px; color: #777; line-height: 1.6;">
-                  Merci de votre compréhension,<br />
-                  L’équipe TDS France
-                </p>
-              </td>
-            </tr>
+  <!-- LIEU -->
+  <tr>
+    <td style="padding:14px 18px;">
+      <table width="100%">
+        <tr>
+          <td style="font-weight:600;color:#475569;width:38%;white-space:nowrap;">
+            Lieu:
+          </td>
+          <td style="text-align:right;">
+            <span style="white-space:nowrap;">{{ appointment.location }}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
 
-            <!-- Footer -->
-            <tr>
-              <td style="border-top: 1px solid #eee; padding-top: 20px; font-size: 12px; color: #999; text-align: center;">
-                {{ copyright }}<br />
-                Cet e-mail est automatique, merci de ne pas y répondre directement.
-              </td>
-            </tr>
+</table>
 
-          </table>
-        </td>
-      </tr>
-    </table>
+<p style="margin-top:20px;font-size:15px;color:#334155;">
+  Si vous avez rencontré un empêchement, nous sommes à votre disposition pour fixer un nouveau rendez-vous à la date de votre choix.
+</p>
 
-  </body>
-</html>
+<p style="margin-top:20px;font-size:15px;color:#334155;">
+  Pour reprogrammer ou pour toute information complémentaire,<br>
+  contactez-nous au <strong>{{ phone }}</strong>.
+</p>
+
+<p style="margin-top:26px;font-size:15px;color:#334155;">
+  Merci de votre compréhension,<br>
+  <strong>L’équipe {{ company.name }}</strong>
+</p>
+
+{% endblock %}

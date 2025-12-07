@@ -1,7 +1,9 @@
 import logging
-import os
 
-from api.utils.cloud.scw.utils import download_file_from_s3, extract_s3_key_from_url
+from api.utils.cloud.scw.utils import (
+    download_file_from_s3,
+    extract_s3_key_from_url,
+)
 from api.utils.email import send_html_email
 from api.utils.email.config import _build_context
 
@@ -10,35 +12,41 @@ logger = logging.getLogger(__name__)
 
 def send_contract_email_to_lead(contract):
     """
-    Envoie un e-mail avec le contrat PDF en pièce jointe
-    au lead associé au client, avec mise en page HTML professionnelle.
+    Envoie au lead un e-mail contenant son contrat en pièce jointe.
 
-    - Utilise le template `email/contract_send.html`
-    - Le contrat PDF est téléchargé depuis Scaleway S3 (bucket privé)
+    - Télécharge le PDF depuis Scaleway S3 (bucket privé)
+    - Injecte le contexte lié au contrat dans le template
+    - Utilise le template `email/contract/contract_send.html`
     """
+
     client = contract.client
     lead = getattr(client, "lead", None)
 
+    # Vérification minimale
     if not lead or not lead.email:
-        logger.warning(f"Aucun email trouvé pour le lead du client {client}.")
+        logger.warning(f"[ContractEmail] Aucun email associé au lead pour le client #{client.id}")
         return
 
-    key = contract.contract_url
-
+    # Récupération clé S3
     try:
-        key = extract_s3_key_from_url(key)
-        pdf_content, pdf_filename = download_file_from_s3("contracts", key)
+        s3_key = extract_s3_key_from_url(contract.contract_url)
+        pdf_content, pdf_filename = download_file_from_s3("contracts", s3_key)
     except Exception as e:
-        logger.error(f"Échec du téléchargement du contrat pour lead {lead.id} : {e}")
+        logger.error(f"[ContractEmail] Impossible de récupérer le fichier pour lead #{lead.id}: {e}")
         return
 
-    # Contexte enrichi pour le template email
-    context = _build_context(lead=lead, extra={"contract": contract})
+    # Contexte email
+    context = _build_context(
+        lead,
+        extra={
+            "contract": contract,
+        },
+    )
 
-    # Envoi de l’e-mail avec pièce jointe
+    # Envoi email
     send_html_email(
         to_email=lead.email,
-        subject="Votre contrat – TDS France",
+        subject="Votre contrat est disponible – Papiers Express",
         template_name="email/contract/contract_send.html",
         context=context,
         attachments=[
@@ -50,35 +58,4 @@ def send_contract_email_to_lead(contract):
         ],
     )
 
-    logger.info(f"📩 Contrat #{contract.id} envoyé à {lead.email}")
-
-def send_contract_signed_notification(contract):
-    """
-    Envoie un e-mail à l'adresse DAILY_RDV_REPORT_EMAIL
-    pour notifier qu'un contrat a été signé.
-    """
-    recipient = os.getenv("DAILY_RDV_REPORT_EMAIL")
-
-    if not recipient:
-        logger.warning("❌ Variable DAILY_RDV_REPORT_EMAIL non configurée dans le .env.")
-        return
-
-    client = contract.client
-    lead = getattr(client, "lead", None)
-
-    context = _build_context(
-        lead=lead,
-        extra={
-            "contract": contract,
-            "client": client,
-        },
-    )
-
-    send_html_email(
-        to_email=recipient,
-        subject=f"📄 Nouveau contrat signé ",
-        template_name="email/contract/contract_signed_admin.html",
-        context=context,
-    )
-
-    logger.info(f"📨 Notification contrat signé envoyée à {recipient} (contrat #{contract.id})")
+    logger.info(f"[ContractEmail] Contrat #{contract.id} envoyé à {lead.email}")

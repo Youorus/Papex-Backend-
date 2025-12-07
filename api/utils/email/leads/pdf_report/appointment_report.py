@@ -53,7 +53,6 @@ def generate_daily_appointment_report(leads):
 
     story.append(table)
     story.append(Spacer(1, 24))
-    story.append(Paragraph("— Généré automatiquement par TDS France —", styles["Italic"]))
 
     doc.build(story)
     buffer.seek(0)
