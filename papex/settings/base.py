@@ -26,6 +26,7 @@ DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
 ACCESS_MAX_AGE = int(os.getenv("ACCESS_TOKEN_LIFETIME_SECONDS", "3600"))
 REFRESH_MAX_AGE = int(os.getenv("REFRESH_TOKEN_LIFETIME_SECONDS", "604800"))
 
+
 ALLOWED_HOSTS = []  # Complété dans prod/local_prod
 
 # -------------------------------------------------------------------
@@ -196,6 +197,8 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 # FRONTEND URL
 # -------------------------------------------------------------------
 FRONTEND_URL = os.getenv("FRONTEND_URL")
+
+WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH", None)
 
 # -------------------------------------------------------------------
 # SECURITY HEADERS (safe aussi en dev)
