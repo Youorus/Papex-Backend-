@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
-
 # ---------------------------------------------------------
 # 🔐 PARAMÈTRES CENTRALISÉS — 100% BASÉS SUR settings.py
 # ---------------------------------------------------------
@@ -68,13 +67,13 @@ class LoginView(APIView):
             status=status.HTTP_200_OK,
         )
 
+        # Définition des cookies HttpOnly
         response.set_cookie(
             key="access_token",
             value=tokens["access"],
             max_age=ACCESS_MAX_AGE,
             **COMMON_COOKIE_PARAMS,
         )
-
         response.set_cookie(
             key="refresh_token",
             value=tokens["refresh"],
@@ -97,15 +96,16 @@ class LogoutView(APIView):
     def post(self, request, *args, **kwargs):
         response = Response(status=status.HTTP_204_NO_CONTENT)
 
+        # 💡 IMPORTANT : delete_cookie doit répliquer secure + samesite + domain + path
         response.delete_cookie(
-            "access_token",
+            key="access_token",
             path="/",
-            domain=COOKIE_DOMAIN
+            domain=COOKIE_DOMAIN,
         )
         response.delete_cookie(
-            "refresh_token",
+            key="refresh_token",
             path="/",
-            domain=COOKIE_DOMAIN
+            domain=COOKIE_DOMAIN,
         )
 
         logger.info("👋 Déconnexion terminée.")
@@ -125,9 +125,11 @@ class CustomTokenRefreshView(TokenRefreshView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Injecter le token depuis le cookie
         request.data["refresh"] = refresh_token
         response = super().post(request, *args, **kwargs)
 
+        # Si refresh OK → remettre un nouveau access_token HttpOnly
         if response.status_code == 200 and "access" in response.data:
             access_token = response.data["access"]
 
@@ -138,6 +140,7 @@ class CustomTokenRefreshView(TokenRefreshView):
                 **COMMON_COOKIE_PARAMS,
             )
 
+            # On supprime l'access token du payload pour sécurité
             del response.data["access"]
 
         return response
