@@ -6,7 +6,7 @@ from django.conf import settings
 
 from api.utils.email import send_html_email
 from slugify import slugify
-from api.utils.email.config import _build_context
+from api.utils.email.config import _build_context, COMPANY_ADDRESS
 
 
 def send_appointment_planned_email(lead):
@@ -16,7 +16,7 @@ def send_appointment_planned_email(lead):
     context = _build_context(
         lead,
         dt=lead.appointment_date,
-        location=None,  # pris depuis company par défaut
+        location=COMPANY_ADDRESS,  # adresse par défaut
     )
 
     return send_html_email(
@@ -34,7 +34,7 @@ def send_appointment_confirmation_email(lead):
     context = _build_context(
         lead,
         dt=lead.appointment_date,
-        location=None,
+        location=None,  # fallback automatique dans _build_context
     )
 
     return send_html_email(
@@ -52,7 +52,7 @@ def send_appointment_reminder_email(lead):
     context = _build_context(
         lead,
         dt=lead.appointment_date,
-        location=None,
+        location=None,  # fallback automatique dans _build_context
     )
 
     return send_html_email(
@@ -70,7 +70,7 @@ def send_missed_appointment_email(lead):
     context = _build_context(
         lead,
         dt=lead.appointment_date,
-        location=None,
+        location=None,  # fallback automatique
     )
 
     return send_html_email(

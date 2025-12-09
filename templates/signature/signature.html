@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Signature Email</title>
+</head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;">
+
+<table cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:100%;">
+    <tr>
+        <td>
+
+            <table cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+                <tr>
+
+                    <!-- Colonne gauche -->
+                    <td valign="top" style="width:180px;padding-right:20px;">
+
+                        <!-- Photo -->
+                        <table cellpadding="0" cellspacing="0" border="0" align="center" style="margin-bottom:25px;">
+                            <tr>
+                                <td align="center">
+                                    <img src="{{PHOTO_URL}}" alt="{{FULL_NAME}}" width="140" height="140"
+                                         style="border-radius:50%;background:#FDB913;display:block;object-fit:cover;">
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Logo -->
+                        <table cellpadding="0" cellspacing="0" border="0" align="center">
+                            <tr>
+                                <td align="center">
+                                    <img src="{{LOGO_URL}}" alt="{{COMPANY_NAME}}" width="120"
+                                         style="display:block;">
+                                </td>
+                            </tr>
+                        </table>
+
+                    </td>
+
+                    <!-- Barre verticale -->
+                    <td style="width:4px;background:#4169E1;"></td>
+
+                    <!-- Colonne droite -->
+                    <td valign="top" style="padding-left:20px;">
+
+                        <!-- Nom -->
+                        <p style="margin:0;font-size:26px;font-weight:bold;color:#222;">
+                            {{FULL_NAME}}
+                        </p>
+
+                        <!-- Poste -->
+                        <p style="margin:3px 0 12px 0;font-size:16px;font-weight:500;color:#C73939;">
+                            {{JOB_TITLE}}
+                        </p>
+
+                        <!-- Nom de l'entreprise -->
+                        <table cellpadding="0" cellspacing="0" border="0" style="margin:10px 0 20px 0;">
+                            <tr>
+                                <td style="background:#4169E1;padding:6px 12px;">
+                                    <span style="font-size:15px;font-weight:700;color:#fff;text-transform:uppercase;">
+                                        {{COMPANY_NAME}}
+                                    </span>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Contact -->
+                        <p style="margin:0 0 6px 0;font-size:14px;color:#444;">
+                            <a href="tel:{{PHONE_RAW}}" style="color:#444;text-decoration:none;">
+                                {{PHONE_DISPLAY}}
+                            </a>
+                        </p>
+                        <p style="margin:0 0 6px 0;font-size:14px;color:#444;">
+                            <a href="mailto:{{EMAIL}}" style="color:#444;text-decoration:none;">
+                                {{EMAIL}}
+                            </a>
+                        </p>
+
+                        <p style="margin:0 0 14px 0;font-size:14px;color:#444;">
+                            <a href="{{WEBSITE}}" target="_blank" style="color:#444;text-decoration:none;">
+                                {{WEBSITE}}
+                            </a>
+                        </p>
+
+<p style="margin:10px 0 6px 0;font-size:14px;color:#4169E1;">
+    <a href="https://www.google.com/maps/search/?api=1&query={{ADDRESS_MAP}}"
+       style="color:#4169E1;text-decoration:none;" target="_blank">
+        {{ADDRESS_TEXT}}
+    </a>
+</p>
+                 <!-- Suivez-nous -->
+                        <p style="margin:10px 0 8px 0;font-size:14px;font-weight:bold;color:#222;">
+                            Suivez-nous :
+                        </p>
+
+                        <!-- Réseaux -->
+                        <table cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;">
+                            <tr>
+                                <td>
+                                    <a href="{{INSTAGRAM}}" target="_blank">
+                                        <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png"
+                                             width="28" height="28" style="display:block;margin-right:6px;border-radius:6px;">
+                                    </a>
+                                </td>
+                                <td>
+                                    <a href="{{FACEBOOK}}" target="_blank">
+                                        <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png"
+                                             width="28" height="28" style="display:block;margin-right:6px;border-radius:6px;">
+                                    </a>
+                                </td>
+                                <td>
+                                    <a href="{{TIKTOK}}" target="_blank">
+                                        <img src="https://cdn-icons-png.flaticon.com/512/3046/3046121.png"
+                                             width="28" height="28" style="display:block;border-radius:6px;">
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+
+                    </td>
+
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+
+<!-- Responsive -->
+<style>
+    @media only screen and (max-width:600px){
+        table,td { display:block !important;width:100% !important;}
+        td[style*="background:#4169E1"] { display:none !important;}
+        td[valign="top"] { padding:10px 0 !important;text-align:center !important;}
+    }
+</style>
+
+</body>
+</html>

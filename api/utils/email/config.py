@@ -108,6 +108,10 @@ def _base_context(lead: object) -> dict:
 # Contexte spécifique (RDV)
 # ================================
 
+# config.py
+
+from .config import COMPANY_ADDRESS
+
 def _build_context(
     lead,
     dt=None,
@@ -116,31 +120,26 @@ def _build_context(
     is_jurist=False,
     extra: dict = None,
 ) -> dict:
-    """
-    Construit un contexte complet incluant :
-    - Données utilisateur
-    - Informations rendez-vous
-    - Données entreprise
-    """
     context = _base_context(lead)
 
-    # RDV si fourni
     if dt:
         date_str, time_str = get_french_datetime_strings(dt)
         with_label, with_name = (
             _get_with_info(appointment) if appointment else (None, None)
         )
 
+        # fallback automatique
+        location_value = location or COMPANY_ADDRESS
+
         context["appointment"] = {
             "date": date_str,
             "time": time_str,
-            "location": location,
+            "location": location_value,
             "note": getattr(appointment, "note", "") if appointment else "",
             "with_label": with_label or ("Juriste" if is_jurist else "Conseiller"),
             "with_name": with_name or "",
         }
 
-    # Données spécifiques à l'email
     if extra:
         context.update(extra)
 
