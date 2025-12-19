@@ -80,6 +80,7 @@ def check_s3_storage():
         "contracts": getattr(settings, "BUCKET_CONTRACTS", None),
         "receipts": getattr(settings, "BUCKET_RECEIPTS", None),
         "invoices": getattr(settings, "BUCKET_INVOICES", None),
+        "candidates": getattr(settings, "BUCKET_CV", None),
     }
     buckets = {k: v for k, v in buckets.items() if v}
 

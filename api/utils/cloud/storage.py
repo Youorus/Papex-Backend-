@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils.text import slugify
@@ -6,7 +8,7 @@ from api.storage_backends import (
     MinioContractStorage,
     MinioDocumentStorage,
     MinioReceiptStorage,
-    MinioInvoiceStorage,  # À créer si pas encore fait
+    MinioInvoiceStorage, MinioCandidateCVStorage,  # À créer si pas encore fait
 )
 
 
@@ -111,4 +113,32 @@ def store_client_document(client, file_content, original_filename) -> str:
     location = f"{storage.location}/" if storage.location else ""
     endpoint = getattr(settings, "AWS_S3_ENDPOINT_URL", "")
     url = f"{endpoint}/{storage.bucket_name}/{location}{saved_path}"
+    return url
+
+
+def store_candidate_cv(candidate, cv_file) -> str:
+    """
+    Stocke le CV d’un candidat dans MinIO/S3 et retourne l’URL publique.
+    Organisation :
+    <slug-job>/cv-prenom-nom-YYYYMMDD.pdf
+    """
+
+    job_slug = candidate.job.slug
+    first_name = slugify(candidate.first_name)
+    last_name = slugify(candidate.last_name)
+    date_str = date.today().strftime("%Y%m%d")
+
+    filename = f"{job_slug}/cv-{first_name}-{last_name}-{date_str}.pdf"
+
+    storage = MinioCandidateCVStorage()
+
+    if isinstance(cv_file, bytes):
+        cv_file = ContentFile(cv_file, name=filename)
+
+    saved_path = storage.save(filename, cv_file)
+
+    location = f"{storage.location}/" if storage.location else ""
+    endpoint = getattr(settings, "AWS_S3_ENDPOINT_URL", "")
+    url = f"{endpoint}/{storage.bucket_name}/{location}{saved_path}"
+
     return url

@@ -209,10 +209,22 @@ class LeadSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         rep = super().to_representation(instance)
-        if instance.appointment_date:
-            # Convertit l'UTC stockée en Europe/Paris
-            paris_dt = instance.appointment_date.astimezone(EUROPE_PARIS)
+
+        # Appointment date (safe)
+        appointment_date = getattr(instance, "appointment_date", None)
+        if appointment_date:
+            paris_dt = appointment_date.astimezone(EUROPE_PARIS)
             rep["appointment_date"] = paris_dt.strftime("%d/%m/%Y %H:%M")
-        if instance.status:
-            rep["status_display"] = instance.status.label
+
+        # Status (SAFE)
+        try:
+            status = instance.status
+        except Exception:
+            status = None
+
+        if status:
+            rep["status_display"] = status.label
+        else:
+            rep["status_display"] = None
+
         return rep

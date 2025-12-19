@@ -124,7 +124,7 @@ BUCKET_CLIENT_DOCUMENTS = os.getenv("BUCKET_CLIENT_DOCUMENTS", "clients-document
 BUCKET_CONTRACTS = os.getenv("BUCKET_CONTRACTS", "clients-contracts-papex")
 BUCKET_RECEIPTS = os.getenv("BUCKET_RECEIPTS", "clients-payment-receipt-papex")
 BUCKET_INVOICES = os.getenv("BUCKET_INVOICES", "clients-invoices-papex")
-
+BUCKET_CV = os.getenv("BUCKET_CV", "candidate-cv-papex")
 
 SCW_BUCKETS = {
     "avatars": BUCKET_USERS_AVATARS,
@@ -132,6 +132,7 @@ SCW_BUCKETS = {
     "contracts": BUCKET_CONTRACTS,
     "receipts": BUCKET_RECEIPTS,
     "invoices": BUCKET_INVOICES,
+    "candidates": BUCKET_CV,
 }
 
 

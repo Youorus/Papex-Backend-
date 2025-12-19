@@ -30,3 +30,9 @@ class MinioInvoiceStorage(S3Boto3Storage):
     bucket_name = config("BUCKET_INVOICES", default="factures")
     location = ""
     file_overwrite = False
+
+
+class MinioCandidateCVStorage(S3Boto3Storage):
+    bucket_name = config("BUCKET_CV", default="candidate-cv")
+    location = ""
+    file_overwrite = False
