@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Optional, Union
 
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Exists, F, OuterRef, Prefetch
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.timezone import get_current_timezone, is_naive, make_aware, now
 from rest_framework.permissions import IsAuthenticated
@@ -31,7 +31,10 @@ def _parse_iso_any(dt: Optional[str]) -> Optional[Union[datetime, date]]:
     return None
 
 
-def _to_aware(dt_or_d: Optional[Union[datetime, date]], end_of_day: bool = False) -> Optional[datetime]:
+def _to_aware(
+        dt_or_d: Optional[Union[datetime, date]],
+        end_of_day: bool = False
+) -> Optional[datetime]:
     """Convertit une date/datetime en datetime aware."""
     if dt_or_d is None:
         return None
@@ -58,14 +61,16 @@ def _to_aware(dt_or_d: Optional[Union[datetime, date]], end_of_day: bool = False
 
 
 def _normalize_avec_sans(value: Optional[str]) -> Optional[str]:
-    """Normalise les valeurs 'avec'/'sans'."""
+    """Normalise les valeurs 'avec'/'sans' en booléen."""
     if not value:
         return None
+
     v = value.strip().lower()
     if v in {"avec", "oui", "with", "true", "1"}:
         return "avec"
     if v in {"sans", "non", "without", "false", "0"}:
         return "sans"
+
     return None
 
 
@@ -101,55 +106,160 @@ class LeadSearchView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    # Constantes de configuration
+    DEFAULT_PAGE = 1
+    DEFAULT_PAGE_SIZE = 20
+    MAX_PAGE_SIZE = 200
+    DEFAULT_ORDERING = "-created_at"
+
+    ALLOWED_ORDERING = {
+        "created_at",
+        "-created_at",
+        "appointment_date",
+        "-appointment_date",
+        "id",
+        "-id",
+        "first_name",
+        "-first_name",
+        "last_name",
+        "-last_name",
+    }
+
     def get(self, request):
-        # --- Query params ---
-        raw_date_from = request.query_params.get("date_from")
-        raw_date_to = request.query_params.get("date_to")
-        raw_appt_from = request.query_params.get("appt_from")
-        raw_appt_to = request.query_params.get("appt_to")
+        # --- Extraction et validation des paramètres ---
+        filters = self._extract_filters(request.query_params)
+        pagination = self._extract_pagination(request.query_params)
 
-        status_code = request.query_params.get("status_code")
-        status_id = _to_int_or_none(request.query_params.get("status_id"))
-        dossier_code = request.query_params.get("dossier_code")
-        dossier_id = _to_int_or_none(request.query_params.get("dossier_id"))
+        # --- Construction du queryset de base ---
+        qs = self._build_base_queryset()
 
-        has_jurist = _normalize_avec_sans(request.query_params.get("has_jurist"))
-        has_conseiller = _normalize_avec_sans(request.query_params.get("has_conseiller"))
+        # --- Application des filtres ---
+        qs = self._apply_filters(qs, filters)
 
-        # Pagination / tri
-        try:
-            page = max(int(request.query_params.get("page", 1)), 1)
-        except (TypeError, ValueError):
-            page = 1
+        # --- Calcul du total AVANT pagination ---
+        total = qs.count()
 
-        try:
-            page_size = min(max(int(request.query_params.get("page_size", 20)), 1), 200)
-        except (TypeError, ValueError):
-            page_size = 20
+        # --- Calcul des KPI sur le queryset filtré ---
+        kpi = self._calculate_kpi(qs)
 
-        allowed_ordering = {
-            "created_at", "-created_at",
-            "appointment_date", "-appointment_date",
-            "id", "-id",
+        # --- Application du tri et de la pagination ---
+        qs = qs.order_by(pagination["ordering"])
+        start = (pagination["page"] - 1) * pagination["page_size"]
+        end = start + pagination["page_size"]
+        leads = qs[start:end]
+
+        # --- Sérialisation ---
+        rows = self._serialize_leads(leads)
+
+        # --- Calcul du nombre de pages ---
+        total_pages = (
+            (total + pagination["page_size"] - 1) // pagination["page_size"]
+            if total > 0
+            else 1
+        )
+
+        return Response({
+            "total": total,
+            "page": pagination["page"],
+            "page_size": pagination["page_size"],
+            "total_pages": total_pages,
+            "ordering": pagination["ordering"],
+            "items": rows,
+            "kpi": kpi,
+        })
+
+    def _extract_filters(self, query_params):
+        """Extrait et valide tous les paramètres de filtre."""
+        # Dates de création
+        date_from = _to_aware(
+            _parse_iso_any(query_params.get("date_from")),
+            end_of_day=False
+        )
+        date_to = _to_aware(
+            _parse_iso_any(query_params.get("date_to")),
+            end_of_day=True
+        )
+
+        # Dates de RDV
+        appt_from = _to_aware(
+            _parse_iso_any(query_params.get("appt_from")),
+            end_of_day=False
+        )
+        appt_to = _to_aware(
+            _parse_iso_any(query_params.get("appt_to")),
+            end_of_day=True
+        )
+
+        # Statuts
+        status_code = query_params.get("status_code")
+        status_id = _to_int_or_none(query_params.get("status_id"))
+        dossier_code = query_params.get("dossier_code")
+        dossier_id = _to_int_or_none(query_params.get("dossier_id"))
+
+        # Assignations
+        has_jurist = _normalize_avec_sans(query_params.get("has_jurist"))
+        has_conseiller = _normalize_avec_sans(query_params.get("has_conseiller"))
+
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "appt_from": appt_from,
+            "appt_to": appt_to,
+            "status_code": status_code,
+            "status_id": status_id,
+            "dossier_code": dossier_code,
+            "dossier_id": dossier_id,
+            "has_jurist": has_jurist,
+            "has_conseiller": has_conseiller,
         }
-        ordering = request.query_params.get("ordering", "-created_at")
-        if ordering not in allowed_ordering:
-            ordering = "-created_at"
 
-        # --- Parse et convertit les dates ---
-        date_from = _to_aware(_parse_iso_any(raw_date_from), end_of_day=False)
-        date_to = _to_aware(_parse_iso_any(raw_date_to), end_of_day=True)
-        appt_from = _to_aware(_parse_iso_any(raw_appt_from), end_of_day=False)
-        appt_to = _to_aware(_parse_iso_any(raw_appt_to), end_of_day=True)
+    def _extract_pagination(self, query_params):
+        """Extrait et valide les paramètres de pagination."""
+        try:
+            page = max(int(query_params.get("page", self.DEFAULT_PAGE)), 1)
+        except (TypeError, ValueError):
+            page = self.DEFAULT_PAGE
 
-        # --- Base queryset ---
+        try:
+            page_size = min(
+                max(int(query_params.get("page_size", self.DEFAULT_PAGE_SIZE)), 1),
+                self.MAX_PAGE_SIZE
+            )
+        except (TypeError, ValueError):
+            page_size = self.DEFAULT_PAGE_SIZE
+
+        ordering = query_params.get("ordering", self.DEFAULT_ORDERING)
+        if ordering not in self.ALLOWED_ORDERING:
+            ordering = self.DEFAULT_ORDERING
+
+        return {
+            "page": page,
+            "page_size": page_size,
+            "ordering": ordering,
+        }
+
+    def _build_base_queryset(self):
+        """Construit le queryset de base avec toutes les annotations."""
         ThroughConseiller = Lead.assigned_to.through
         ThroughJurist = Lead.jurist_assigned.through
 
-        qs = (
+        return (
             Lead.objects
             .select_related("status", "statut_dossier")
-            .prefetch_related("jurist_assigned", "assigned_to")
+            .prefetch_related(
+                Prefetch(
+                    "jurist_assigned",
+                    queryset=Lead.jurist_assigned.related.related_model.objects.only(
+                        "id", "first_name", "last_name"
+                    )
+                ),
+                Prefetch(
+                    "assigned_to",
+                    queryset=Lead.assigned_to.related.related_model.objects.only(
+                        "id", "first_name", "last_name"
+                    )
+                ),
+            )
             .annotate(
                 has_conseiller=Exists(
                     ThroughConseiller.objects.filter(lead_id=OuterRef("pk"))
@@ -166,86 +276,77 @@ class LeadSearchView(APIView):
             )
         )
 
-        # --- Filtres de dates ---
-        if date_from:
-            qs = qs.filter(created_at__gte=date_from)
-        if date_to:
-            qs = qs.filter(created_at__lte=date_to)
+    def _apply_filters(self, qs, filters):
+        """Applique tous les filtres au queryset."""
+        # Filtres de dates de création
+        if filters["date_from"]:
+            qs = qs.filter(created_at__gte=filters["date_from"])
+        if filters["date_to"]:
+            qs = qs.filter(created_at__lte=filters["date_to"])
 
-        # --- Filtres appointment_date ---
-        # ⚠️ IMPORTANT : Filter sur appointment_date nécessite Q objects pour gérer NULL
-        if appt_from and appt_to:
-            # Si les deux dates sont présentes
-            qs = qs.filter(
-                appointment_date__isnull=False,
-                appointment_date__gte=appt_from,
-                appointment_date__lte=appt_to
-            )
-        elif appt_from:
-            # Seulement date de début
-            qs = qs.filter(
-                appointment_date__isnull=False,
-                appointment_date__gte=appt_from
-            )
-        elif appt_to:
-            # Seulement date de fin
-            qs = qs.filter(
-                appointment_date__isnull=False,
-                appointment_date__lte=appt_to
-            )
+        # Filtres de dates de RDV
+        if filters["appt_from"] or filters["appt_to"]:
+            # Toujours exclure les NULL quand on filtre sur appointment_date
+            qs = qs.filter(appointment_date__isnull=False)
 
-        # --- Filtres statut ---
-        # Priorité à l'ID si les deux sont fournis
-        if status_id is not None:
-            qs = qs.filter(status_id=status_id)
-        elif status_code:
-            qs = qs.filter(status__code=status_code)
+            if filters["appt_from"]:
+                qs = qs.filter(appointment_date__gte=filters["appt_from"])
+            if filters["appt_to"]:
+                qs = qs.filter(appointment_date__lte=filters["appt_to"])
 
-        # --- Filtres statut dossier ---
-        if dossier_id is not None:
-            qs = qs.filter(statut_dossier_id=dossier_id)
-        elif dossier_code:
-            qs = qs.filter(statut_dossier__code=dossier_code)
+        # Filtres de statut (priorité à l'ID)
+        if filters["status_id"] is not None:
+            qs = qs.filter(status_id=filters["status_id"])
+        elif filters["status_code"]:
+            qs = qs.filter(status__code=filters["status_code"])
 
-        # --- Filtres assignations ---
-        if has_jurist == "avec":
+        # Filtres de statut dossier (priorité à l'ID)
+        if filters["dossier_id"] is not None:
+            qs = qs.filter(statut_dossier_id=filters["dossier_id"])
+        elif filters["dossier_code"]:
+            qs = qs.filter(statut_dossier__code=filters["dossier_code"])
+
+        # Filtres d'assignation
+        if filters["has_jurist"] == "avec":
             qs = qs.filter(has_jurist=True)
-        elif has_jurist == "sans":
+        elif filters["has_jurist"] == "sans":
             qs = qs.filter(has_jurist=False)
 
-        if has_conseiller == "avec":
+        if filters["has_conseiller"] == "avec":
             qs = qs.filter(has_conseiller=True)
-        elif has_conseiller == "sans":
+        elif filters["has_conseiller"] == "sans":
             qs = qs.filter(has_conseiller=False)
 
-        # --- Total (AVANT pagination) ---
-        total = qs.count()
+        return qs
 
-        # --- KPI FILTRÉS (calculés sur le queryset filtré) ---
+    def _calculate_kpi(self, filtered_qs):
+        """Calcule les KPI sur le queryset filtré."""
         today = now().date()
 
         # RDV aujourd'hui (UNIQUEMENT RDV_PLANIFIE et RDV_CONFIRME)
-        rdv_today = qs.filter(
+        rdv_today = filtered_qs.filter(
             appointment_date__date=today,
             status__code__in=[RDV_PLANIFIE, RDV_CONFIRME]
         ).count()
 
         # Contrats aujourd'hui liés aux leads filtrés
-        # ⚠️ Optimisation : utiliser values_list avec flat=True
-        filtered_lead_ids = qs.values_list('id', flat=True)
-        contracts_today = Contract.objects.filter(
-            client__lead_id__in=filtered_lead_ids,
-            created_at__date=today
-        ).count()
+        # Optimisation : utiliser values_list avec flat=True
+        filtered_lead_ids = list(filtered_qs.values_list('id', flat=True))
 
-        # --- Pagination & tri ---
-        qs = qs.order_by(ordering)
-        start = (page - 1) * page_size
-        end = start + page_size
+        contracts_today = 0
+        if filtered_lead_ids:  # Éviter une requête vide
+            contracts_today = Contract.objects.filter(
+                client__lead_id__in=filtered_lead_ids,
+                created_at__date=today
+            ).count()
 
-        leads = qs[start:end]
+        return {
+            "rdv_today": rdv_today,
+            "contracts_today": contracts_today,
+        }
 
-        # --- Serialization ---
+    def _serialize_leads(self, leads):
+        """Sérialise les leads en dictionnaires."""
         rows = []
         for lead in leads:
             rows.append({
@@ -255,7 +356,11 @@ class LeadSearchView(APIView):
                 "email": lead.email,
                 "phone": lead.phone,
                 "created_at": lead.created_at.isoformat() if lead.created_at else None,
-                "appointment_date": lead.appointment_date.isoformat() if lead.appointment_date else None,
+                "appointment_date": (
+                    lead.appointment_date.isoformat()
+                    if lead.appointment_date
+                    else None
+                ),
                 "status_id": lead.status_id,
                 "statut_dossier_id": lead.statut_dossier_id,
                 "lead_status_code": lead.lead_status_code,
@@ -267,29 +372,20 @@ class LeadSearchView(APIView):
                 "has_conseiller": lead.has_conseiller,
                 "has_jurist": lead.has_jurist,
                 "jurists": [
-                    {"id": u.id, "first_name": u.first_name, "last_name": u.last_name}
+                    {
+                        "id": u.id,
+                        "first_name": u.first_name,
+                        "last_name": u.last_name
+                    }
                     for u in lead.jurist_assigned.all()
                 ],
                 "conseillers": [
-                    {"id": u.id, "first_name": u.first_name, "last_name": u.last_name}
+                    {
+                        "id": u.id,
+                        "first_name": u.first_name,
+                        "last_name": u.last_name
+                    }
                     for u in lead.assigned_to.all()
                 ],
             })
-
-        # --- Calcul du nombre de pages ---
-        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
-
-        return Response(
-            {
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages,
-                "ordering": ordering,
-                "items": rows,
-                "kpi": {
-                    "rdv_today": rdv_today,
-                    "contracts_today": contracts_today,
-                },
-            }
-        )
+        return rows

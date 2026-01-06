@@ -25,6 +25,7 @@ from api.utils.email.leads.tasks import (
     send_formulaire_task,
     send_jurist_assigned_notification_task
 )
+from api.utils.sms.tasks import send_appointment_confirmation_sms_task
 
 """
 Vues pour la gestion des Leads via API REST.
@@ -124,13 +125,19 @@ class LeadViewSet(viewsets.ModelViewSet):
 
     def _send_notifications(self, lead):
         code = getattr(lead.status, "code", None)
-        if not lead.email:
-            return
 
         if code == RDV_PLANIFIE:
-            send_appointment_planned_task.delay(lead.id)
+            if lead.email:
+                send_appointment_planned_task.delay(lead.id)
+
         elif code == RDV_CONFIRME:
-            send_appointment_confirmation_task.delay(lead.id)
+            # 📧 Email
+            if lead.email:
+                send_appointment_confirmation_task.delay(lead.id)
+
+            # 📲 SMS
+            if lead.phone:
+                send_appointment_confirmation_sms_task.delay(lead.id)
 
     def perform_update(self, serializer):
         lead_before = self.get_object()

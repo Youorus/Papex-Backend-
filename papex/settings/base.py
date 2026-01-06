@@ -200,6 +200,19 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 # -------------------------------------------------------------------
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
+
+
+# -------------------------------------------------------------------
+# 📩 OVH SMS
+# -------------------------------------------------------------------
+APP_KEY = os.getenv("APP_KEY")
+APP_SECRET = os.getenv("APP_SECRET")
+CONSUMER_KEY = os.getenv("CONSUMER_KEY")
+
+SERVICE_SMS = os.getenv("SERVICE_SMS")
+SENDER = os.getenv("SENDER", "PAPEX")
+
+
 WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH", None)
 
 # -------------------------------------------------------------------
