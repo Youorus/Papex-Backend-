@@ -124,10 +124,17 @@ class LeadSearchView(APIView):
         if date_to:
             qs = qs.filter(created_at__lte=date_to)
 
-        if appt_from:
-            qs = qs.filter(appointment_date__gte=appt_from)
-        if appt_to:
-            qs = qs.filter(appointment_date__lte=appt_to)
+        if appt_from and appt_to:
+            qs = qs.filter(
+                appointment_date__date__range=(
+                    appt_from.date(),
+                    appt_to.date(),
+                )
+            )
+        elif appt_from:
+            qs = qs.filter(appointment_date__date__gte=appt_from.date())
+        elif appt_to:
+            qs = qs.filter(appointment_date__date__lte=appt_to.date())
 
         if status_id is not None:
             qs = qs.filter(status_id=status_id)
