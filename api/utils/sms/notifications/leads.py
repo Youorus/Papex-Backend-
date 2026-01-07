@@ -14,13 +14,13 @@ def send_appointment_confirmation_sms(lead):
     date_str, time_str = get_french_datetime_strings(lead.appointment_date)
 
     message = (
-        f"Bonjour {lead.first_name},\n"
-        f"Votre rendez-vous avec Papiers Express est confirmé.\n\n"
-        f"Le {date_str} à {time_str}\n"
-        f"au 39 rue Navier, 75017 Paris\n"
-        f"Tél : 06 31 01 84 26\n\n"
-        f"À bientôt,\n"
-        f"Papiers Express"
+        f"Bonjour {lead.first_name}, "
+        f"Votre rendez vous avec Papiers Express est confirme "
+        f"le {date_str} a {time_str}. "
+        f"Adresse: 39 rue Navier 75017 Paris. "
+        f"Tel 0631018426. "
+        f"A bientot. "
+        f"Papiers Express."
     )
 
     return send_sms(
