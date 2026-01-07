@@ -18,6 +18,14 @@ client = ovh.Client(
     consumer_key=CONSUMER_KEY,
 )
 
+message = (
+        f"Bonjour Marc,\n"
+        f"Votre rendez-vous avec Papiers Express est confirmé.✅\n\n"
+        f"Le Lundi 20 janvier à 12h00\n"
+        f"au 39 rue Navier, 75017 Paris\n\n"
+        f"À bientôt,\nPapiers Express"
+    )
+
 try:
     # Vérifie la connexion
     info = client.get("/me")
@@ -27,7 +35,7 @@ try:
     result = client.post(
         f"/sms/{SERVICE_SMS}/jobs",
         sender=SENDER,
-        message="Test SMS OVH via Python ✅",
+        message=message,
         receivers=[NUMERO_DEST]
     )
     print("SMS envoyé ! Détails :", result)
