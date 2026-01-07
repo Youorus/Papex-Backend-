@@ -1,49 +1,47 @@
-import ovh
+from api.utils.sms.sender import send_sms
+from api.utils.email.utils import get_french_datetime_strings
+import unicodedata
 
-# 🔐 Remplace par tes vraies clés
-APP_KEY = "d388ddef898e1525"
-APP_SECRET = "6e71c53653850baa57dd9560fe274be7"
-CONSUMER_KEY = "6ef50e3c77eb7b50fd6989a7e87064ea"
 
-SERVICE_SMS = "sms-ep141702-1"  # Remplace par ton service SMS OVH
-NUMERO_DEST = "+33759650005"    # Numéro qui va recevoir le SMS
+def _to_gsm(text: str) -> str:
+    """
+    Force un texte 100% GSM 7 bits (OVH safe)
+    """
+    text = unicodedata.normalize("NFKD", text)
+    text = text.encode("ascii", "ignore").decode("ascii")
+    return text
 
-SENDER = "PAPEX"
 
-# Création du client OVH
-client = ovh.Client(
-    endpoint="ovh-eu",
-    application_key=APP_KEY,
-    application_secret=APP_SECRET,
-    consumer_key=CONSUMER_KEY,
-)
+def send_appointment_confirmation_sms(lead):
+    """
+    SMS de confirmation de rendez-vous
+    - 100% GSM
+    - 1 seul SMS garanti
+    - compatible OVH
+    """
+    if not lead.phone:
+        return
 
-message = (
-        f"Bonjour Marc,\n"
-        f"Votre rendez-vous avec Papiers Express est confirmé.\n\n"
-        f"Le Lundi 20 janvier à 12h00\n"
-        f"au 39 rue Navier, 75017 Paris\n"
-        f"Tél : 06 31 01 84 26\n\n"
-        f"À bientôt,\nPapiers Express"
+    date_str, time_str = get_french_datetime_strings(lead.appointment_date)
+
+    first_name = _to_gsm(lead.first_name or "")
+
+    date_str = _to_gsm(date_str)
+    time_str = _to_gsm(time_str)
+
+    message = (
+        f"Bonjour {first_name}, "
+        f"Votre rendez vous avec Papiers Express est confirme "
+        f"le {date_str} a {time_str}. "
+        f"Adresse: 39 rue Navier 75017 Paris. "
+        f"Tel 0631018426. "
+        f"A bientot. "
+        f"Papiers Express."
     )
 
-try:
-    # Vérifie la connexion
-    info = client.get("/me")
-    print("Connexion OK. Infos compte :", info)
+    message = _to_gsm(message)
 
-    # Envoi du SMS
-    result = client.post(
-        f"/sms/{SERVICE_SMS}/jobs",
-        sender=SENDER,
+    return send_sms(
         message=message,
-        receivers=[NUMERO_DEST]
+        receivers=[lead.phone],
     )
-    print("SMS envoyé ! Détails :", result)
-
-except ovh.exceptions.BadParametersError as e:
-    print("Paramètre incorrect :", e)
-except ovh.exceptions.APIError as e:
-    print("Erreur API :", e)
-except Exception as e:
-    print("Autre erreur :", e)
