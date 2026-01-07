@@ -22,7 +22,8 @@ message = (
         f"Bonjour Marc,\n"
         f"Votre rendez-vous avec Papiers Express est confirmé.✅\n\n"
         f"Le Lundi 20 janvier à 12h00\n"
-        f"au 39 rue Navier, 75017 Paris\n\n"
+        f"au 39 rue Navier, 75017 Paris\n"
+        f"Tél : 06 31 01 84 26\n\n"
         f"À bientôt,\nPapiers Express"
     )
 

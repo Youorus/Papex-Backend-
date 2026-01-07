@@ -17,7 +17,8 @@ def send_appointment_confirmation_sms(lead):
         f"Bonjour {lead.first_name},\n"
         f"Votre rendez-vous avec Papiers Express est confirmé.✅\n\n"
         f"Le {date_str} à {time_str}\n"
-        f"au 39 rue Navier, 75017 Paris\n\n"
+        f"au 39 rue Navier, 75017 Paris\n"
+        f"Tél : 06 31 01 84 26\n\n"
         f"À bientôt,\n"
         f"Papiers Express"
     )
