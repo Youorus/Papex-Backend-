@@ -17,16 +17,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENV = os.getenv("ENV", "production")
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me")
 
-# En base on met False, et on override ailleurs si besoin
 DEBUG = ENV != "production"
 
 DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
 
-# ✅ JWT cookies max-age (en secondes)
-ACCESS_MAX_AGE = int(os.getenv("ACCESS_TOKEN_LIFETIME_SECONDS", "900"))  # 15 min par défaut
-REFRESH_MAX_AGE = int(os.getenv("REFRESH_TOKEN_LIFETIME_SECONDS", "604800"))  # 7 jours
+# JWT cookies
+ACCESS_MAX_AGE = int(os.getenv("ACCESS_TOKEN_LIFETIME_SECONDS", "900"))
+REFRESH_MAX_AGE = int(os.getenv("REFRESH_TOKEN_LIFETIME_SECONDS", "604800"))
 
-ALLOWED_HOSTS = []  # Complété dans prod/local_prod
+ALLOWED_HOSTS = []
 
 # -------------------------------------------------------------------
 # APPS
@@ -48,7 +47,7 @@ THIRD_PARTY_APPS = [
     "background_task",
     "rest_framework",
     "rest_framework_simplejwt",
-    "rest_framework_simplejwt.token_blacklist",  # ✅ AJOUTÉ pour blacklist
+    "rest_framework_simplejwt.token_blacklist",
 ]
 
 LOCAL_APPS = [
@@ -74,7 +73,7 @@ LOCAL_APPS = [
     "api.jurist_availability_date",
     "api.user_unavailability",
     "api.job",
-    "api.candidate"
+    "api.candidate",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -156,40 +155,16 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
 }
 
-# ✅ CONFIGURATION JWT AMÉLIORÉE
 SIMPLE_JWT = {
-    # Durées de vie
     "ACCESS_TOKEN_LIFETIME": timedelta(seconds=ACCESS_MAX_AGE),
     "REFRESH_TOKEN_LIFETIME": timedelta(seconds=REFRESH_MAX_AGE),
-
-    # ✅ ROTATION ET BLACKLIST (CRITIQUE)
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-
-    # Algorithme
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY,
-
-    # Headers
     "AUTH_HEADER_TYPES": ("Bearer",),
-    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
-
-    # Claims
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
-
-    # ✅ Token types
-    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
-    "TOKEN_TYPE_CLAIM": "token_type",
-
-    # ✅ Sliding tokens (optionnel)
-    "SLIDING_TOKEN_REFRESH_LIFETIME": timedelta(days=1),
-    "SLIDING_TOKEN_LIFETIME": timedelta(days=7),
-    "SLIDING_TOKEN_REFRESH_EXP_CLAIM": "refresh_exp",
-
-    # ✅ Claims de base
-    "JTI_CLAIM": "jti",
-    "TOKEN_USER_CLASS": "rest_framework_simplejwt.models.TokenUser",
 }
 
 # -------------------------------------------------------------------
@@ -198,7 +173,7 @@ SIMPLE_JWT = {
 STATIC_URL = "/static/"
 
 # -------------------------------------------------------------------
-# CACHES (locmem par défaut, safe)
+# CACHES
 # -------------------------------------------------------------------
 CACHES = {
     "default": {
@@ -209,11 +184,25 @@ CACHES = {
 }
 
 # -------------------------------------------------------------------
-# EMAIL
+# 📧 EMAIL (SMTP)  ✅ OBLIGATOIRE
 # -------------------------------------------------------------------
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("true", "1")
+EMAIL_USE_SSL = False
+
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+
+DEFAULT_FROM_EMAIL = os.getenv(
+    "DEFAULT_FROM_EMAIL",
+    f"Papiers Express <{EMAIL_HOST_USER}>"
+)
 
 # -------------------------------------------------------------------
-# FRONTEND URL
+# FRONTEND
 # -------------------------------------------------------------------
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
@@ -227,17 +216,16 @@ CONSUMER_KEY = os.getenv("CONSUMER_KEY")
 SERVICE_SMS = os.getenv("SERVICE_SMS")
 SENDER = os.getenv("SENDER", "PAPEX")
 
-WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH", None)
+WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH")
 
 # -------------------------------------------------------------------
-# SECURITY HEADERS (safe aussi en dev)
+# SECURITY HEADERS
 # -------------------------------------------------------------------
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
-# En base on aligne SameSite sur la config JWT
 SESSION_COOKIE_SAMESITE = "None"
 CSRF_COOKIE_SAMESITE = "None"
 
@@ -247,17 +235,13 @@ CSRF_COOKIE_SAMESITE = "None"
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "formatters": {
-        "default": {
-            "format": "[{levelname}] {asctime} — {name} — {message}",
-            "style": "{",
-        },
-    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "default",
         },
     },
-    "root": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL},
+    "root": {
+        "handlers": ["console"],
+        "level": DJANGO_LOG_LEVEL,
+    },
 }

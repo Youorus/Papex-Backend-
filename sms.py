@@ -1,49 +1,21 @@
-import ovh
+from api.leads.models import Lead
+from api.lead_status.models import LeadStatus
+from api.leads.constants import RDV_CONFIRME
 
-
-
-# 🔐 Remplace par tes vraies clés
-APP_KEY = "d388ddef898e1525"
-APP_SECRET = "6e71c53653850baa57dd9560fe274be7"
-CONSUMER_KEY = "6ef50e3c77eb7b50fd6989a7e87064ea"
-
-SERVICE_SMS = "sms-ep141702-1"  # Remplace par ton service SMS OVH
-NUMERO_DEST = "+33759650005"    # Numéro qui va recevoir le SMS
-
-SENDER = "PAPEX"
-
-# Création du client OVH
-client = ovh.Client(
-    endpoint="ovh-eu",
-    application_key=APP_KEY,
-    application_secret=APP_SECRET,
-    consumer_key=CONSUMER_KEY,
+lead = Lead.objects.create(
+    first_name="Test",
+    last_name="AutoMail",
+    email="mtakoumba@gmail.com",
+    phone="0600000000",
+    appointment_date="2026-01-15 14:30:00",
+    status=LeadStatus.objects.get(code=RDV_CONFIRME),
 )
 
-message = (
-    "RDV confirme Papiers Express "
-    "ven 19 fev 16h30 "
-    "39 rue Navier Paris 17 "
-    "Tel 0631018426"
-)
+print("Lead créé :", lead.id, lead.email)
 
-try:
-    # Vérifie la connexion
-    info = client.get("/me")
-    print("Connexion OK. Infos compte :", info)
+# La notification est envoyée automatiquement via perform_create
+# Ici on la déclenche manuellement pour simuler exactement le flux
+from api.leads.views import LeadViewSet
+LeadViewSet()._send_notifications(lead)
 
-    # Envoi du SMS
-    result = client.post(
-        f"/sms/{SERVICE_SMS}/jobs",
-        sender=SENDER,
-        message=message,
-        receivers=[NUMERO_DEST]
-    )
-    print("SMS envoyé ! Détails :", result)
-
-except ovh.exceptions.BadParametersError as e:
-    print("Paramètre incorrect :", e)
-except ovh.exceptions.APIError as e:
-    print("Erreur API :", e)
-except Exception as e:
-    print("Autre erreur :", e)
+print("Notification déclenchée")
