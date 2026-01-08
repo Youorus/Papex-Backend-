@@ -8,69 +8,89 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "papex.settings.prod")
 django.setup()
 
 # ============================================================
-# 🧪 TEST SMTP DIRECT (ISOLÉ)
-# ============================================================
-from django.core.mail import send_mail
-from django.conf import settings
-
-print("\n🧪 TEST SMTP DIRECT (PRODUCTION)\n")
-
-print("EMAIL_BACKEND =", settings.EMAIL_BACKEND)
-print("EMAIL_HOST =", settings.EMAIL_HOST)
-print("EMAIL_PORT =", settings.EMAIL_PORT)
-print("EMAIL_USE_TLS =", settings.EMAIL_USE_TLS)
-print("EMAIL_HOST_USER =", settings.EMAIL_HOST_USER)
-print("DEFAULT_FROM_EMAIL =", settings.DEFAULT_FROM_EMAIL)
-
-try:
-    send_mail(
-        subject="🧪 Test SMTP Papex PROD",
-        message="Si tu reçois cet email, le SMTP fonctionne correctement ✅",
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=["contact@papiers-express.fr"],  # mets ton email si besoin
-        fail_silently=False,
-    )
-    print("\n✅ SMTP OK — email envoyé avec succès\n")
-except Exception as e:
-    print("\n❌ SMTP KO — erreur détectée")
-    print(type(e).__name__, e)
-    print("\n⛔ ARRÊT DU SCRIPT (SMTP NON FONCTIONNEL)\n")
-    exit(1)
-
-# ============================================================
-# 🧪 TEST RAPPEL J-1 (LOGIQUE MÉTIER)
+# 🧪 IMPORTS
 # ============================================================
 from datetime import timedelta
 from django.utils import timezone
+from rest_framework.test import APIRequestFactory, force_authenticate
 
-from api.leads.tasks import send_reminder_emails
-from api.leads.models import Lead
+from api.leads.views import LeadViewSet
 from api.lead_status.models import LeadStatus
 from api.leads.constants import RDV_CONFIRME
+from api.users.models import User
+from api.leads.models import Lead
 
-print("🧪 TEST RAPPEL J-1 EN PROD DB\n")
+# ============================================================
+# 🧪 CONTEXTE DE TEST
+# ============================================================
+print("\n🧪 TEST CREATE LEAD VIA LeadViewSet.create()\n")
 
+# Utilisateur réel (CONSEILLER ou ADMIN)
+user = User.objects.filter(is_active=True).first()
+
+if not user:
+    raise Exception("❌ Aucun utilisateur actif trouvé")
+
+print(f"👤 Utilisateur utilisé : {user.email}")
+
+# ============================================================
+# 🧪 PAYLOAD IDENTIQUE AU FRONT
+# ⚠️ FORMAT DATE OBLIGATOIRE : DD/MM/YYYY HH:MM
+# ============================================================
 now = timezone.now()
-tomorrow = now + timedelta(days=1)
+appointment_date = (now + timedelta(days=1)).strftime("%d/%m/%Y %H:%M")
 
-status = LeadStatus.objects.get(code=RDV_CONFIRME)
+payload = {
+    "first_name": "Test",
+    "last_name": "ViewSet",
+    "email": "mtakoumba@gmail.com",
+    "phone": "+33759650005",
+    "appointment_date": appointment_date,
+}
 
-lead = Lead.objects.create(
-    first_name="Test",
-    last_name="Prod",
-    email="mtakoumba@gmail.com",
-    phone="+33759650005",
-    appointment_date=tomorrow,
-    status=status,
-    last_reminder_sent=None,
-)
+# ============================================================
+# 🧪 SETUP DRF
+# ============================================================
+factory = APIRequestFactory()
+request = factory.post("/api/leads/", payload, format="json")
+force_authenticate(request, user=user)
 
-print(f"✅ Lead créé id={lead.id}")
+view = LeadViewSet.as_view({"post": "create"})
+response = view(request)
 
-# 🔥 Appel direct de la logique métier
-send_reminder_emails()
+# ============================================================
+# 🧪 RÉSULTAT API
+# ============================================================
+print("📡 Status HTTP :", response.status_code)
 
-lead.refresh_from_db()
+if response.status_code != 201:
+    print("❌ Erreur API :", response.data)
+    raise SystemExit(1)
 
-print("📬 last_reminder_sent =", lead.last_reminder_sent)
-print("\n🎉 FIN DU TEST COMPLET\n")
+lead_id = response.data["id"]
+print(f"✅ Lead créé avec succès (id={lead_id})")
+
+# ============================================================
+# 🧪 VÉRIFICATIONS MÉTIER (SANS ASSERT)
+# ============================================================
+lead = Lead.objects.get(id=lead_id)
+
+print("\n🔍 VÉRIFICATIONS LEAD")
+print("• Nom :", lead.first_name, lead.last_name)
+print("• Email :", lead.email)
+print("• Téléphone :", lead.phone)
+print("• RDV :", lead.appointment_date)
+print("• Statut :", lead.status.code if lead.status else None)
+print("• last_reminder_sent :", lead.last_reminder_sent)
+
+# Statut attendu
+expected_status = LeadStatus.objects.get(code=RDV_CONFIRME).id
+print("• Statut attendu :", RDV_CONFIRME)
+
+if lead.status_id != expected_status:
+    print("⚠️ ATTENTION : statut inattendu")
+
+# ============================================================
+# 🧪 FIN
+# ============================================================
+print("\n🎉 TEST CREATE LEAD VIA VIEWSET TERMINÉ AVEC SUCCÈS\n")

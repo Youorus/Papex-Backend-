@@ -12,7 +12,6 @@ from api.utils.email import (
     send_appointment_reminder_email,
     send_missed_appointment_email,
 )
-
 from api.utils.sms.notifications.leads import (
     send_appointment_reminder_sms,
 )
@@ -20,12 +19,18 @@ from api.utils.sms.notifications.leads import (
 logger = logging.getLogger(__name__)
 
 
-@shared_task
-def send_reminder_emails():
+# ============================================================
+# ⏰ RAPPEL J-1 — EMAIL + SMS (NON BLOQUANT)
+# ============================================================
+
+@shared_task(bind=True)
+def send_reminder_notifications(self):
     """
     Envoie un rappel J-1 pour les rendez-vous confirmés.
-    👉 Email ET SMS sont envoyés ensemble.
-    👉 Un seul envoi grâce au champ last_reminder_sent.
+
+    - Email et SMS sont indépendants
+    - Aucun échec ne bloque la task
+    - last_reminder_sent est posé quoi qu’il arrive
     """
     now = timezone.now()
     tomorrow = now.date() + timedelta(days=1)
@@ -35,47 +40,76 @@ def send_reminder_emails():
         appointment_date__date=tomorrow,
     )
 
+    logger.info(f"🔔 Rappel J-1 — {leads.count()} lead(s) trouvé(s)")
+
     for lead in leads:
-        # 🔒 Anti double rappel
+        # 🔒 Anti double envoi
         if lead.last_reminder_sent:
+            logger.debug(
+                f"⏭️ Lead #{lead.id} déjà rappelé — ignoré"
+            )
             continue
 
+        logger.info(f"➡️ Traitement rappel lead #{lead.id}")
+
+        # =========================
         # 📧 EMAIL
+        # =========================
         if lead.email:
             try:
                 send_appointment_reminder_email(lead)
                 logger.info(
-                    f"📧 Rappel J-1 email envoyé à {lead.email} (lead #{lead.id})"
+                    f"📧 Rappel email envoyé à {lead.email} (lead #{lead.id})"
                 )
-            except Exception as e:
+            except Exception:
                 logger.error(
-                    f"❌ Erreur envoi email rappel lead #{lead.id}: {e}",
+                    f"❌ Erreur email rappel lead #{lead.id}",
                     exc_info=True,
                 )
+        else:
+            logger.info(
+                f"ℹ️ Lead #{lead.id} sans email — rappel email ignoré"
+            )
 
+        # =========================
         # 📲 SMS
+        # =========================
         if lead.phone:
             try:
                 send_appointment_reminder_sms(lead)
                 logger.info(
-                    f"📲 Rappel J-1 SMS envoyé à {lead.phone} (lead #{lead.id})"
+                    f"📲 Rappel SMS envoyé à {lead.phone} (lead #{lead.id})"
                 )
-            except Exception as e:
+            except Exception:
                 logger.error(
-                    f"❌ Erreur envoi SMS rappel lead #{lead.id}: {e}",
+                    f"❌ Erreur SMS rappel lead #{lead.id}",
                     exc_info=True,
                 )
+        else:
+            logger.info(
+                f"ℹ️ Lead #{lead.id} sans téléphone — rappel SMS ignoré"
+            )
 
-        # 🔒 Verrouillage APRES les deux tentatives
+        # =========================
+        # 🔒 VERROU FINAL
+        # =========================
         lead.last_reminder_sent = now
         lead.save(update_fields=["last_reminder_sent"])
 
+        logger.info(
+            f"🔒 Rappel verrouillé pour lead #{lead.id}"
+        )
 
-@shared_task
-def mark_absent_leads():
+
+# ============================================================
+# 🚫 MARQUER ABSENT + EMAIL (NON BLOQUANT)
+# ============================================================
+
+@shared_task(bind=True)
+def mark_absent_leads(self):
     """
-    Marque comme ABSENT les leads dont le rendez-vous confirmé est passé.
-    Envoie un mail d'absence si possible.
+    Marque comme ABSENT les leads dont le RDV est passé.
+    Envoie un email d'absence si possible.
     """
     now = timezone.now()
 
@@ -83,7 +117,9 @@ def mark_absent_leads():
         absent_status = LeadStatus.objects.get(code=ABSENT)
         confirmed_status = LeadStatus.objects.get(code=RDV_CONFIRME)
     except LeadStatus.DoesNotExist:
-        logger.error("❌ Statuts 'ABSENT' ou 'RDV_CONFIRME' introuvables.")
+        logger.error(
+            "❌ Statuts ABSENT ou RDV_CONFIRME introuvables — arrêt task"
+        )
         return
 
     leads_to_mark = Lead.objects.filter(
@@ -91,23 +127,30 @@ def mark_absent_leads():
         appointment_date__lt=now,
     )
 
+    logger.info(
+        f"🚫 Marquage ABSENT — {leads_to_mark.count()} lead(s)"
+    )
+
     for lead in leads_to_mark:
         lead.status = absent_status
         lead.save(update_fields=["status"])
-        logger.info(f"✅ Lead #{lead.id} marqué comme ABSENT")
+
+        logger.info(
+            f"✅ Lead #{lead.id} marqué ABSENT"
+        )
 
         if lead.email:
             try:
                 send_missed_appointment_email(lead)
                 logger.info(
-                    f"📧 Mail d'absence envoyé à {lead.email} (lead #{lead.id})"
+                    f"📧 Email absence envoyé à {lead.email} (lead #{lead.id})"
                 )
-            except Exception as e:
+            except Exception:
                 logger.error(
-                    f"❌ Erreur mail absence lead #{lead.id}: {e}",
+                    f"❌ Erreur email absence lead #{lead.id}",
                     exc_info=True,
                 )
         else:
-            logger.warning(
-                f"⚠️ Email manquant pour lead #{lead.id}, pas d'envoi possible."
+            logger.info(
+                f"ℹ️ Lead #{lead.id} sans email — pas d’email d’absence"
             )
