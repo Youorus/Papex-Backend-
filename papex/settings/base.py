@@ -22,10 +22,9 @@ DEBUG = ENV != "production"
 
 DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
 
-# JWT cookies max-age (en secondes)
-ACCESS_MAX_AGE = int(os.getenv("ACCESS_TOKEN_LIFETIME_SECONDS", "3600"))
-REFRESH_MAX_AGE = int(os.getenv("REFRESH_TOKEN_LIFETIME_SECONDS", "604800"))
-
+# ✅ JWT cookies max-age (en secondes)
+ACCESS_MAX_AGE = int(os.getenv("ACCESS_TOKEN_LIFETIME_SECONDS", "900"))  # 15 min par défaut
+REFRESH_MAX_AGE = int(os.getenv("REFRESH_TOKEN_LIFETIME_SECONDS", "604800"))  # 7 jours
 
 ALLOWED_HOSTS = []  # Complété dans prod/local_prod
 
@@ -49,6 +48,7 @@ THIRD_PARTY_APPS = [
     "background_task",
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",  # ✅ AJOUTÉ pour blacklist
 ]
 
 LOCAL_APPS = [
@@ -149,7 +149,6 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
-    # ⚡ Prod API only JSON + pagination globale
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
@@ -157,14 +156,40 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
 }
 
+# ✅ CONFIGURATION JWT AMÉLIORÉE
 SIMPLE_JWT = {
-    "AUTH_COOKIE": "access_token",
-    "REFRESH_COOKIE": "refresh_token",
+    # Durées de vie
     "ACCESS_TOKEN_LIFETIME": timedelta(seconds=ACCESS_MAX_AGE),
     "REFRESH_TOKEN_LIFETIME": timedelta(seconds=REFRESH_MAX_AGE),
-    "AUTH_COOKIE_SECURE": True,
-    "AUTH_COOKIE_HTTP_ONLY": True,
-    "AUTH_COOKIE_SAMESITE": "None",
+
+    # ✅ ROTATION ET BLACKLIST (CRITIQUE)
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+
+    # Algorithme
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+
+    # Headers
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
+
+    # Claims
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+
+    # ✅ Token types
+    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
+    "TOKEN_TYPE_CLAIM": "token_type",
+
+    # ✅ Sliding tokens (optionnel)
+    "SLIDING_TOKEN_REFRESH_LIFETIME": timedelta(days=1),
+    "SLIDING_TOKEN_LIFETIME": timedelta(days=7),
+    "SLIDING_TOKEN_REFRESH_EXP_CLAIM": "refresh_exp",
+
+    # ✅ Claims de base
+    "JTI_CLAIM": "jti",
+    "TOKEN_USER_CLASS": "rest_framework_simplejwt.models.TokenUser",
 }
 
 # -------------------------------------------------------------------
@@ -194,13 +219,10 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 
-
 # -------------------------------------------------------------------
 # FRONTEND URL
 # -------------------------------------------------------------------
 FRONTEND_URL = os.getenv("FRONTEND_URL")
-
-
 
 # -------------------------------------------------------------------
 # 📩 OVH SMS
@@ -211,7 +233,6 @@ CONSUMER_KEY = os.getenv("CONSUMER_KEY")
 
 SERVICE_SMS = os.getenv("SERVICE_SMS")
 SENDER = os.getenv("SENDER", "PAPEX")
-
 
 WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH", None)
 

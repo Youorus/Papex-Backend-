@@ -12,65 +12,45 @@ from rest_framework.response import Response
 
 from api.booking.models import SlotQuota
 from api.lead_status.models import LeadStatus
-from api.leads.constants import ABSENT, PRESENT, RDV_CONFIRME, RDV_PLANIFIE
+from api.leads.constants import ABSENT, PRESENT, RDV_CONFIRME
 from api.leads.models import Lead
 from api.leads.permissions import IsConseillerOrAdmin, IsLeadCreator
 from api.leads.serializers import LeadSerializer
 from api.users.models import User
 from api.users.roles import UserRoles
+
 from api.utils.email.leads.tasks import (
     send_appointment_confirmation_task,
-    send_appointment_planned_task,
     send_dossier_status_notification_task,
     send_formulaire_task,
-    send_jurist_assigned_notification_task
+    send_jurist_assigned_notification_task,
 )
+
 from api.utils.sms.tasks import send_appointment_confirmation_sms_task
-
-"""
-Vues pour la gestion des Leads via API REST.
-
-Ce module contient le `LeadViewSet`, qui permet :
-- la création, lecture, mise à jour et suppression de leads (CRUD)
-- des actions personnalisées (assignation de conseiller/juriste, création publique, etc.)
-- l’envoi de notifications email selon les statuts et événements
-
-Chaque action respecte les permissions associées au rôle utilisateur.
-"""
 
 
 class LeadViewSet(viewsets.ModelViewSet):
     """
     ViewSet principal pour la gestion des leads.
 
-    Fonctionnalités :
-    - CRUD classique
-    - Assignation des conseillers ou juristes
-    - Création publique avec gestion de quota horaire
-    - Envoi automatique de notifications email selon le statut ou la modification
-    - Filtres dynamiques sur la date, le statut, le texte
-
-    Permissions :
-    - Créateur du lead (IsLeadCreator) par défaut
-    - Public (AllowAny) pour la création publique
-    - Admin ou Conseiller requis pour l’assignation
+    Règle métier :
+    👉 Tout rendez-vous pris est CONFIRMÉ immédiatement.
+    👉 Le statut RDV_PLANIFIE n'est plus utilisé.
     """
 
     serializer_class = LeadSerializer
     permission_classes = [IsLeadCreator]
 
-    def get_queryset(self):
-        user = self.request.user
-        queryset = Lead.objects.all()
+    # =====================
+    # QUERYSET & FILTRES
+    # =====================
 
-        # ⚡️ Pas de filtrage par rôle → tout le monde voit le même jeu de données
+    def get_queryset(self):
+        queryset = Lead.objects.all()
         queryset = self._filter_by_search(queryset)
         queryset = self._filter_by_status(queryset)
         queryset = self._filter_by_date(queryset)
-
         return queryset.order_by("-created_at")
-
-    # ==== FILTRES ====
 
     def _filter_by_search(self, queryset):
         search = self.request.query_params.get("search")
@@ -98,7 +78,9 @@ class LeadViewSet(viewsets.ModelViewSet):
                 return queryset.filter(**{f"{date_field}__date": parsed_date})
         return queryset
 
-    # ==== PERMISSIONS ====
+    # =====================
+    # PERMISSIONS
+    # =====================
 
     def get_permissions(self):
         if self.action == "public_create":
@@ -107,65 +89,52 @@ class LeadViewSet(viewsets.ModelViewSet):
             return [IsConseillerOrAdmin()]
         return super().get_permissions()
 
-    # ==== CREATE & UPDATE ====
+    # =====================
+    # CREATE / UPDATE
+    # =====================
 
     def perform_create(self, serializer):
-        lead_status = serializer.validated_data.get("status")
-        if not lead_status:
-            lead_status = self._get_default_status()
-
-        lead = serializer.save(status=lead_status)
+        lead = serializer.save(status=self._get_default_status())
         self._send_notifications(lead)
 
     def _get_default_status(self):
         try:
-            return LeadStatus.objects.get(code=RDV_PLANIFIE)
+            return LeadStatus.objects.get(code=RDV_CONFIRME)
         except LeadStatus.DoesNotExist:
-            raise NotFound("Le statut 'RDV_PLANIFIE' n'existe pas en base.")
+            raise NotFound("Le statut RDV_CONFIRME n'existe pas en base.")
 
     def _send_notifications(self, lead):
-        code = getattr(lead.status, "code", None)
-
-        if code == RDV_PLANIFIE:
-            if lead.email:
-                send_appointment_planned_task.delay(lead.id)
-
-        elif code == RDV_CONFIRME:
-            # 📧 Email
-            if lead.email:
-                send_appointment_confirmation_task.delay(lead.id)
-
-            # 📲 SMS
-            if lead.phone:
-                send_appointment_confirmation_sms_task.delay(lead.id)
-
-    def perform_update(self, serializer):
-        lead_before = self.get_object()
-        lead_after = serializer.save()
-
-        self._handle_update_notifications(lead_before, lead_after)
-
-    def _handle_update_notifications(self, before, after):
-        if not after.email:
+        if getattr(lead.status, "code", None) != RDV_CONFIRME:
             return
 
-        status_changed = getattr(before.status, "code", None) != getattr(
-            after.status, "code", None
-        )
+        # 📧 Email
+        if lead.email:
+            send_appointment_confirmation_task.delay(lead.id)
+
+        # 📲 SMS
+        if lead.phone:
+            send_appointment_confirmation_sms_task.delay(lead.id)
+
+    def perform_update(self, serializer):
+        before = self.get_object()
+        after = serializer.save()
+
+        status_changed = before.status_id != after.status_id
         appointment_changed = before.appointment_date != after.appointment_date
-        statut_dossier_changed = getattr(before.statut_dossier, "id", None) != getattr(
-            after.statut_dossier, "id", None
+        dossier_changed = (
+            getattr(before.statut_dossier, "id", None)
+            != getattr(after.statut_dossier, "id", None)
         )
 
-        if appointment_changed:
-            self._send_notifications(after)
-        elif status_changed:
+        if status_changed or appointment_changed:
             self._send_notifications(after)
 
-        if statut_dossier_changed and after.statut_dossier:
+        if dossier_changed and after.statut_dossier:
             send_dossier_status_notification_task.delay(after.id)
 
-    # ====== ROUTES PERSONNALISÉES ======
+    # =====================
+    # ROUTES PERSONNALISÉES
+    # =====================
 
     @action(
         detail=False,
@@ -175,11 +144,9 @@ class LeadViewSet(viewsets.ModelViewSet):
     )
     def public_create(self, request):
         """
-        Crée un lead via un formulaire public (sans authentification).
-
-        Valide que le créneau horaire est disponible.
-        Réserve dynamiquement un slot (`SlotQuota`) si disponible.
-        Envoie un email selon le statut choisi (RDV_PLANIFIE ou RDV_CONFIRME).
+        Création publique d’un lead.
+        👉 Le RDV est CONFIRMÉ immédiatement.
+        👉 SlotQuota sécurisé en transaction.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -204,100 +171,97 @@ class LeadViewSet(viewsets.ModelViewSet):
                     status=drf_status.HTTP_409_CONFLICT,
                 )
 
-            lead_status = (
-                serializer.validated_data.get("status") or self._get_default_status()
-            )
-            lead = serializer.save(status=lead_status)
+            lead = serializer.save(status=self._get_default_status())
 
         self._send_notifications(lead)
         return Response(
-            self.get_serializer(lead).data, status=drf_status.HTTP_201_CREATED
+            self.get_serializer(lead).data,
+            status=drf_status.HTTP_201_CREATED,
         )
+
+    # =====================
+    # STATS / DASHBOARD
+    # =====================
 
     @action(detail=False, methods=["get"], url_path="count-by-status")
     def count_by_status(self, request):
-        """
-        Retourne un comptage des leads par statut :
-        - RDV_CONFIRME
-        - RDV_PLANIFIE
-        - ABSENT
+        status = LeadStatus.objects.filter(code=RDV_CONFIRME).first()
+        count = Lead.objects.filter(status=status).count() if status else 0
+        return Response({RDV_CONFIRME: count})
 
-        Utilisé pour le dashboard de statistiques.
-        """
-        statuses = LeadStatus.objects.filter(
-            code__in=[RDV_CONFIRME, RDV_PLANIFIE, ABSENT]
-        )
-        counts = {
-            code: (
-                Lead.objects.filter(status=status).count()
-                if (status := statuses.filter(code=code).first())
-                else 0
+    @action(detail=False, methods=["get"], url_path="rdv-by-date")
+    def rdv_by_date(self, request):
+        date_str = request.query_params.get("date")
+        if not date_str:
+            return Response(
+                {"detail": "Le paramètre 'date' est requis (YYYY-MM-DD)."},
+                status=400,
             )
-            for code in [RDV_CONFIRME, RDV_PLANIFIE, ABSENT]
-        }
-        return Response(counts)
+
+        parsed_date = parse_date(date_str)
+        if not parsed_date:
+            return Response(
+                {"detail": "Format de date invalide."},
+                status=400,
+            )
+
+        status = LeadStatus.objects.filter(code=RDV_CONFIRME).first()
+        if not status:
+            return Response(
+                {"detail": "Le statut RDV_CONFIRME n'existe pas."},
+                status=500,
+            )
+
+        leads = (
+            Lead.objects.filter(
+                status=status,
+                appointment_date__date=parsed_date,
+            )
+            .order_by("appointment_date")
+            .distinct()
+        )
+
+        serializer = self.get_serializer(leads, many=True)
+        return Response(serializer.data)
+
+    # =====================
+    # ASSIGNATIONS
+    # =====================
 
     @action(detail=True, methods=["patch"], url_path="assignment")
     def assignment(self, request, pk=None):
-        """
-        Assigne ou désassigne un ou plusieurs conseillers à un lead.
-
-        - ADMIN : peut assigner/désassigner n'importe quel conseiller + s'auto-assigner
-        - CONSEILLER : peut uniquement s'auto-assigner ou se désassigner.
-        """
-
-        import sys
-        print("=" * 80, file=sys.stderr)
-        print("🔥 ASSIGNMENT APPELÉ !", file=sys.stderr)
-        print(f"User: {request.user.email}", file=sys.stderr)
-        print(f"Role: {request.user.role}", file=sys.stderr)
-        print(f"PK: {pk}", file=sys.stderr)
-        print(f"Data: {request.data}", file=sys.stderr)
-        print("=" * 80, file=sys.stderr)
-
         lead = self.get_object()
         user = request.user
 
-        # Vérification du rôle
         if user.role not in [UserRoles.ADMIN, UserRoles.CONSEILLER]:
-            raise PermissionDenied(
-                "Seuls les admins ou conseillers peuvent gérer les assignations."
-            )
+            raise PermissionDenied("Accès interdit.")
 
-        action = request.data.get("action")
+        action_type = request.data.get("action")
         assign_ids = request.data.get("assign", [])
         unassign_ids = request.data.get("unassign", [])
 
-        # ✅ Cas 1 : Auto-assignation/désassignation (action="assign" ou "unassign")
-        if action in ["assign", "unassign"]:
-            if action == "assign":
-                if not lead.assigned_to.filter(id=user.id).exists():
-                    lead.assigned_to.add(user)
-            elif action == "unassign":
-                if lead.assigned_to.filter(id=user.id).exists():
-                    lead.assigned_to.remove(user)
+        if action_type == "assign":
+            lead.assigned_to.add(user)
+        elif action_type == "unassign":
+            lead.assigned_to.remove(user)
 
-        # ✅ Cas 2 : Admin assigne/désassigne d'autres conseillers (via arrays)
         elif user.role == UserRoles.ADMIN:
             if assign_ids:
-                valid_users = User.objects.filter(
-                    id__in=assign_ids, role=UserRoles.CONSEILLER, is_active=True
+                users = User.objects.filter(
+                    id__in=assign_ids,
+                    role=UserRoles.CONSEILLER,
+                    is_active=True,
                 )
-                if valid_users.count() != len(assign_ids):
-                    raise NotFound("Un ou plusieurs conseillers sont introuvables.")
-                lead.assigned_to.add(*valid_users)
+                lead.assigned_to.add(*users)
 
             if unassign_ids:
-                users_to_unassign = User.objects.filter(
-                    id__in=unassign_ids, role=UserRoles.CONSEILLER
-                )
-                lead.assigned_to.remove(*users_to_unassign)
+                users = User.objects.filter(id__in=unassign_ids)
+                lead.assigned_to.remove(*users)
 
-        # ✅ Cas 3 : Conseiller essaie d'assigner quelqu'un d'autre
         else:
             return Response(
-                {"detail": "Les conseillers ne peuvent que s'auto-assigner/désassigner."},
-                status=400
+                {"detail": "Action non autorisée."},
+                status=400,
             )
 
         lead.save()
@@ -305,12 +269,9 @@ class LeadViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["patch"], url_path="assign-juristes")
     def assign_juristes(self, request, pk=None):
-        """
-        Assigne ou désassigne un ou plusieurs juristes à un lead (ADMIN uniquement).
-        """
         user = request.user
         if user.role != UserRoles.ADMIN:
-            raise PermissionDenied("Seul un admin peut gérer les juristes assignés.")
+            raise PermissionDenied("Admin requis.")
 
         lead = self.get_object()
         assign_ids = request.data.get("assign", [])
@@ -318,18 +279,20 @@ class LeadViewSet(viewsets.ModelViewSet):
 
         if assign_ids:
             juristes = User.objects.filter(
-                id__in=assign_ids, role=UserRoles.JURISTE, is_active=True
+                id__in=assign_ids,
+                role=UserRoles.JURISTE,
+                is_active=True,
             )
-            if juristes.count() != len(assign_ids):
-                raise NotFound("Un ou plusieurs juristes à assigner sont introuvables.")
             lead.jurist_assigned.add(*juristes)
 
             if lead.email and juristes.exists():
-                main_jurist = juristes.first()
-                send_jurist_assigned_notification_task.delay(lead.id, main_jurist.id)
+                send_jurist_assigned_notification_task.delay(
+                    lead.id,
+                    juristes.first().id,
+                )
 
         if unassign_ids:
-            juristes = User.objects.filter(id__in=unassign_ids, role=UserRoles.JURISTE)
+            juristes = User.objects.filter(id__in=unassign_ids)
             lead.jurist_assigned.remove(*juristes)
 
         lead.save()
@@ -337,54 +300,6 @@ class LeadViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="send-formulaire-email")
     def send_formulaire_email(self, request, pk=None):
-        """
-        Déclenche l’envoi d’un e-mail contenant le formulaire au lead concerné.
-        """
         lead = self.get_object()
         send_formulaire_task.delay(lead.id)
-        return Response({"detail": "E-mail de formulaire envoyé."}, status=200)
-
-    @action(detail=False, methods=["get"], url_path="rdv-by-date")
-    def rdv_by_date(self, request):
-        """
-        Retourne les leads ayant un RDV planifié OU confirmé
-        pour une date spécifique (YYYY-MM-DD), sans doublons.
-        """
-        date_str = request.query_params.get("date")
-        if not date_str:
-            return Response(
-                {"detail": "Le paramètre 'date' est requis (format YYYY-MM-DD)."},
-                status=400
-            )
-
-        parsed_date = parse_date(date_str)
-        if not parsed_date:
-            return Response(
-                {"detail": "Format de date invalide. Utiliser YYYY-MM-DD."},
-                status=400
-            )
-
-        # --- Récupération des statuts dynamiques ---
-        STATUS_CODES = ["RDV_PLANIFIE", "RDV_CONFIRME"]
-
-        statuses = LeadStatus.objects.filter(code__in=STATUS_CODES)
-
-        if not statuses.exists():
-            return Response(
-                {"detail": "Aucun des statuts RDV_PLANIFIE / RDV_CONFIRME n'existe."},
-                status=500
-            )
-
-        # --- Récupération des leads ---
-        leads = (
-            Lead.objects
-            .filter(
-                status__in=statuses,
-                appointment_date__date=parsed_date
-            )
-            .order_by("appointment_date")
-            .distinct()  # >>> empêche les doublons
-        )
-
-        serializer = self.get_serializer(leads, many=True)
-        return Response(serializer.data)
+        return Response({"detail": "E-mail envoyé."}, status=200)

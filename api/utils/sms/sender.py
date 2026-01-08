@@ -27,6 +27,7 @@ def send_sms(
             sender=sender or settings.SENDER,
             message=message,
             receivers=receivers,
+            charset="GSM",
         )
         logger.info(f"📲 SMS envoyé à {receivers} — job={result.get('id')}")
         return result

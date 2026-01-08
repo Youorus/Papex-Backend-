@@ -44,6 +44,11 @@ class LeadSerializer(serializers.ModelSerializer):
         allow_null=True,
         required=False,
     )
+    last_reminder_sent = serializers.DateTimeField(
+        read_only=True,
+        format="%d/%m/%Y %H:%M",
+        allow_null=True,
+    )
     form_data = ClientSerializer(read_only=True)
     assigned_to = AssignedUserSerializer(read_only=True, many=True)
     status = LeadStatusSerializer(read_only=True)
@@ -95,6 +100,7 @@ class LeadSerializer(serializers.ModelSerializer):
             "email",
             "phone",
             "appointment_date",
+            "last_reminder_sent",
             "created_at",
             "form_data",
             "status",
@@ -215,6 +221,13 @@ class LeadSerializer(serializers.ModelSerializer):
         if appointment_date:
             paris_dt = appointment_date.astimezone(EUROPE_PARIS)
             rep["appointment_date"] = paris_dt.strftime("%d/%m/%Y %H:%M")
+
+        last_reminder = getattr(instance, "last_reminder_sent", None)
+        if last_reminder:
+            paris_dt = last_reminder.astimezone(EUROPE_PARIS)
+            rep["last_reminder_sent"] = paris_dt.strftime("%d/%m/%Y %H:%M")
+        else:
+            rep["last_reminder_sent"] = None
 
         # Status (SAFE)
         try:

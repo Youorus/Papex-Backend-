@@ -62,6 +62,13 @@ class Lead(models.Model):
         help_text=_("Date et heure du rendez-vous (optionnel)"),
     )
 
+    last_reminder_sent = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("dernier rappel envoyé"),
+        help_text=_("Date et heure du dernier rappel J-1 envoyé (email et SMS)"),
+    )
+
     created_at = models.DateTimeField(
         default=timezone.now,
         verbose_name=_("date de création"),

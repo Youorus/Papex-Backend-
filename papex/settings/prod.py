@@ -15,22 +15,28 @@ ALLOWED_HOSTS = [h for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h]
 
 COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN")
 
-# Cookies sécurisés
+# ✅ Cookies sécurisés en production
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
 SESSION_COOKIE_DOMAIN = COOKIE_DOMAIN
 CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
 
-# En prod on passe en Lax pour la plupart des cas (API/SPA + cookies)
+# ✅ En prod avec frontend sur même domaine = Lax
+# Si frontend sur domaine différent = None (comme dans base.py)
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 
-# HTTPS derrière Cloudflare / Render / Proxy
+# ✅ HTTPS derrière Cloudflare / Render / Proxy
 SECURE_SSL_REDIRECT = False  # Cloudflare gère déjà HTTPS
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
+
+# ✅ HSTS (optionnel mais recommandé)
+SECURE_HSTS_SECONDS = 31536000  # 1 an
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
 
 # ============================================================
 # 🗄️  DATABASE (POSTGRESQL)
@@ -56,6 +62,7 @@ DATABASES["default"]["OPTIONS"].update(
 # ============================================================
 # 🌍 CORS & CSRF
 # ============================================================
+# ✅ CRITIQUE pour que les cookies fonctionnent
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
