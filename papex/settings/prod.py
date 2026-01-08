@@ -22,10 +22,10 @@ CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_DOMAIN = COOKIE_DOMAIN
 CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
 
-# ✅ En prod avec frontend sur même domaine = Lax
-# Si frontend sur domaine différent = None (comme dans base.py)
-SESSION_COOKIE_SAMESITE = "Lax"
-CSRF_COOKIE_SAMESITE = "Lax"
+# ✅ En prod avec frontend sur sous-domaine différent = None
+# (crm.papiers-express.fr ≠ api.papiers-express.fr)
+SESSION_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SAMESITE = "None"
 
 # ✅ HTTPS derrière Cloudflare / Render / Proxy
 SECURE_SSL_REDIRECT = False  # Cloudflare gère déjà HTTPS
