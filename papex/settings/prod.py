@@ -44,21 +44,30 @@ SECURE_HSTS_PRELOAD = True
 DATABASES = {
     "default": dj_database_url.config(
         default=os.getenv("DATABASE_URL"),
-        conn_max_age=600,
+        conn_max_age=30,  # ↓ REDUIRE de 60 à 30 secondes
         ssl_require=True,
+        engine='django.db.backends.postgresql_psycopg2',
     )
 }
 
-# Options additionnelles pour la stabilité
-DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+# Options additionnelles pour la stabilité - AJOUTER TOUTES CES OPTIONS
 DATABASES["default"].setdefault("OPTIONS", {})
-DATABASES["default"]["OPTIONS"].update(
-    {
-        "sslmode": "require",
-        "connect_timeout": 10,
-    }
-)
+DATABASES["default"]["OPTIONS"].update({
+    "sslmode": "require",
+    "connect_timeout": 5,  # ↓ Réduire de 10 à 5 secondes
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 5,
+    "client_encoding": "UTF8",
+})
 
+# CONFIGURATION DE POOLING CRITIQUE
+DATABASES["default"].update({
+    "ATOMIC_REQUESTS": False,  # Désactiver pour éviter de maintenir les connexions trop longtemps
+    "CONN_HEALTH_CHECKS": True,
+    "DISABLE_SERVER_SIDE_CURSORS": True,  # Important pour éviter les fuites
+})
 # ============================================================
 # 🌍 CORS & CSRF
 # ============================================================
