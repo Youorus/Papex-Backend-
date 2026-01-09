@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfontconfig1 \
     xfonts-75dpi \
     xfonts-base \
+    ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -52,6 +54,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfontconfig1 \
     xfonts-75dpi \
     xfonts-base \
+    ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
