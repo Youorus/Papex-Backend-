@@ -40,9 +40,11 @@ DJANGO_APPS = [
 ]
 
 CELERY_TASK_QUEUES = (
-    Queue("email"),
+    Queue("default"),
+    Queue("emails"),
     Queue("sms"),
 )
+
 CELERY_TASK_DEFAULT_QUEUE = "default"
 
 THIRD_PARTY_APPS = [
@@ -326,6 +328,16 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
     "socket_keepalive": True,
     "retry_on_timeout": True,
     "health_check_interval": int(os.getenv("CELERY_HEALTHCHECK_INTERVAL", "30")),
+}
+
+CELERY_TASK_ROUTES = {
+    # Emails
+    "api.utils.email.*": {"queue": "emails"},
+    "api.utils.email.**": {"queue": "emails"},
+
+    # SMS
+    "api.sms.*": {"queue": "sms"},
+    "api.sms.**": {"queue": "sms"},
 }
 
 # SSL pour rediss:// si un jour tu passes en TLS
