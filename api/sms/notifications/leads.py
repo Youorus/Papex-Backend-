@@ -19,26 +19,20 @@ SMS_MAX_LENGTH = 160  # GSM 7-bit
 # 📞 Normalisation téléphone (OBLIGATOIRE OVH)
 # ======================================================
 def normalize_phone(phone: str) -> str:
-    """
-    Normalise un numéro FR vers le format E.164 (+336XXXXXXXX)
-    """
     if not phone:
         return ""
 
     phone = phone.strip()
     phone = re.sub(r"[^\d+]", "", phone)
 
-    # 06XXXXXXXX → +336XXXXXXXX
     if phone.startswith("0"):
         phone = "+33" + phone[1:]
-
-    # 336XXXXXXXX → +336XXXXXXXX
     elif phone.startswith("33"):
         phone = "+" + phone
 
-    # Si déjà en +33, OK
-    elif phone.startswith("+33"):
-        pass
+    # ✅ Validation stricte mobile FR (OVH-safe)
+    if not re.match(r"^\+33[67]\d{8}$", phone):
+        return ""
 
     return phone
 
