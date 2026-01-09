@@ -12,10 +12,11 @@ from rest_framework.response import Response
 
 from api.booking.models import SlotQuota
 from api.lead_status.models import LeadStatus
-from api.leads.constants import ABSENT, PRESENT, RDV_CONFIRME
+from api.leads.constants import RDV_CONFIRME
 from api.leads.models import Lead
 from api.leads.permissions import IsConseillerOrAdmin, IsLeadCreator
 from api.leads.serializers import LeadSerializer
+from api.sms.tasks import send_appointment_confirmation_sms_task
 from api.users.models import User
 from api.users.roles import UserRoles
 
@@ -25,8 +26,6 @@ from api.utils.email.leads.tasks import (
     send_formulaire_task,
     send_jurist_assigned_notification_task,
 )
-
-from api.utils.sms.tasks import send_appointment_confirmation_sms_task
 
 
 class LeadViewSet(viewsets.ModelViewSet):

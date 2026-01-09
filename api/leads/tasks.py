@@ -7,14 +7,13 @@ from django.utils import timezone
 from api.lead_status.models import LeadStatus
 from api.leads.constants import ABSENT, RDV_CONFIRME
 from api.leads.models import Lead
+from api.sms.notifications.leads import send_appointment_reminder_sms
 
 from api.utils.email import (
     send_appointment_reminder_email,
     send_missed_appointment_email,
 )
-from api.utils.sms.notifications.leads import (
-    send_appointment_reminder_sms,
-)
+
 
 logger = logging.getLogger(__name__)
 

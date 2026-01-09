@@ -1,27 +1,24 @@
 import logging
-
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
 
-import logging
-
-from celery import shared_task
-
-logger = logging.getLogger(__name__)
-
-
-@shared_task
+@shared_task(queue="email")
 def send_contract_email_task(contract_id: int):
     """
     Tâche asynchrone pour envoyer un contrat par email au lead.
     """
     from api.contracts.models import Contract
-    from api.utils.email.contracts.notifications import send_contract_email_to_lead
+    from api.utils.email.contracts.notifications import (
+        send_contract_email_to_lead,
+    )
 
     contract = (
-        Contract.objects.select_related("client__lead").filter(id=contract_id).first()
+        Contract.objects
+        .select_related("client__lead")
+        .filter(id=contract_id)
+        .first()
     )
 
     if (
@@ -31,6 +28,11 @@ def send_contract_email_task(contract_id: int):
         and contract.client.lead.email
     ):
         send_contract_email_to_lead(contract)
-        logger.info(f"📩 Contrat #{contract.id} envoyé à {contract.client.lead.email}")
+        logger.info(
+            f"📩 Contrat #{contract.id} envoyé à "
+            f"{contract.client.lead.email}"
+        )
     else:
-        logger.warning(f"❌ Contrat #{contract_id} non envoyé – données incomplètes.")
+        logger.warning(
+            f"❌ Contrat #{contract_id} non envoyé — données incomplètes"
+        )

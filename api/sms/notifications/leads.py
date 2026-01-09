@@ -1,7 +1,7 @@
 # api/utils/sms/notifications/leads.py
 
-from api.utils.sms.sender import send_sms
-from api.utils.sms.utils import get_french_datetime_strings_sms
+from api.sms.sender import send_sms
+from api.sms.utils import get_french_datetime_strings_sms
 import unicodedata
 
 
@@ -74,7 +74,7 @@ def send_appointment_reminder_sms(lead):
         f"{date_str} {time_str}\n"
         f"{COMPANY_ADDRESS_LINE_1}\n"
         f"{COMPANY_ADDRESS_LINE_2}\n\n"
-        f"Tel {COMPANY_PHONE}"
+        f"Tel {COMPANY_PHONE}\n\n"
     )
 
     message = normalize_sms(message)
