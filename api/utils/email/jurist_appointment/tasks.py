@@ -16,7 +16,7 @@ from api.utils.email.jurist_appointment.notifications import (
 logger = logging.getLogger(__name__)
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_jurist_appointment_created_task(appointment_id: int):
     """
     Envoie un e-mail de confirmation de rendez-vous juriste.
@@ -40,7 +40,7 @@ def send_jurist_appointment_created_task(appointment_id: int):
     )
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_jurist_appointment_deleted_task(
     lead_id: int,
     jurist_id: int,

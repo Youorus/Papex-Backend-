@@ -6,7 +6,7 @@ from api.utils.email.recus.notifications import send_receipts_email_to_lead
 logger = logging.getLogger(__name__)
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_receipts_email_task(lead_id: int):
     """
     Task Celery pour envoyer les reçus de paiement par e-mail au lead associé.
@@ -40,7 +40,7 @@ def send_receipts_email_task(lead_id: int):
     )
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_due_date_updated_email_task(receipt_id: int, new_due_date: str):
     """
     Task Celery pour envoyer un e-mail suite à la mise à jour d'une date d’échéance.

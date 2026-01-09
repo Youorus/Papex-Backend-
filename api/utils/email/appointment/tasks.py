@@ -12,7 +12,7 @@ from api.utils.email.appointment.notifications import (
 logger = logging.getLogger(__name__)
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_appointment_created_task(appointment_id: int):
     """
     Envoie un email au lead pour l’informer de la création du rendez-vous.

@@ -8,7 +8,7 @@ from api.utils.email.clients.notifications import (
 logger = logging.getLogger(__name__)
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_client_account_created_task(client_id: int):
     """
     Envoie l’email de création de compte client.

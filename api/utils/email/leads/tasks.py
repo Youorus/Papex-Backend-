@@ -13,7 +13,7 @@ from api.utils.email.leads.notifications import (
 logger = logging.getLogger(__name__)
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_appointment_confirmation_task(lead_id: int):
     lead = Lead.objects.select_related("status").filter(id=lead_id).first()
     if lead and lead.email:
@@ -28,7 +28,7 @@ def send_appointment_confirmation_task(lead_id: int):
         )
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_appointment_planned_task(lead_id: int):
     lead = Lead.objects.select_related("status").filter(id=lead_id).first()
     if lead and lead.email:
@@ -43,7 +43,7 @@ def send_appointment_planned_task(lead_id: int):
         )
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_dossier_status_notification_task(lead_id: int):
     lead = Lead.objects.select_related("statut_dossier").filter(id=lead_id).first()
     if lead and lead.statut_dossier:
@@ -59,7 +59,7 @@ def send_dossier_status_notification_task(lead_id: int):
         )
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_formulaire_task(lead_id: int):
     """
     Envoie un email contenant le lien du formulaire à compléter.
@@ -75,7 +75,7 @@ def send_formulaire_task(lead_id: int):
         )
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_jurist_assigned_notification_task(lead_id: int, jurist_id: int):
     from api.users.models import User
 

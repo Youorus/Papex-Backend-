@@ -4,7 +4,7 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
-@shared_task(queue="email")
+@shared_task(queue="emails")
 def send_contract_email_task(contract_id: int):
     """
     Tâche asynchrone pour envoyer un contrat par email au lead.
