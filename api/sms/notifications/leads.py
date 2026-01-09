@@ -93,7 +93,7 @@ def send_appointment_confirmation_sms(lead):
         f"RDV CONFIRME\n"
         f"{COMPANY_NAME}\n"
         f"Le {date_str} a {time_str}\n"
-        f"{COMPANY_ADDRESS_SHORT}\n"
+        f"{COMPANY_ADDRESS_SHORT}\n\n"
         f"Tel: {COMPANY_PHONE}\n"
         f"Merci de votre confiance"
     )

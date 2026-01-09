@@ -6,10 +6,10 @@ from dateutil import tz
 
 def get_french_datetime_strings_sms(dt: datetime):
     """
-    Retourne une date et une heure SMS-friendly en francais.
+    Retourne une date et une heure SMS-friendly en français.
 
     Exemples:
-    - date_str: "Ven. 19/02"
+    - date_str: "19/02/2024"  (format dd/mm/YYYY)
     - time_str: "16h30"
     """
 
@@ -20,11 +20,8 @@ def get_french_datetime_strings_sms(dt: datetime):
     france_tz = tz.gettz("Europe/Paris")
     dt = dt.astimezone(france_tz)
 
-    # Jours FR courts (sans accents)
-    days = ["Lun.", "Mar.", "Mer.", "Jeu.", "Ven.", "Sam.", "Dim."]
-
-    day_str = days[dt.weekday()]          # Ven.
-    date_str = f"{day_str} {dt:%d/%m}"    # Ven. 19/02
-    time_str = f"{dt:%H}h{dt:%M}"          # 16h30
+    # Format date: dd/mm/YYYY
+    date_str = f"{dt:%d/%m/%Y}"  # 19/02/2024
+    time_str = f"{dt:%H}h{dt:%M}"  # 16h30
 
     return date_str, time_str
