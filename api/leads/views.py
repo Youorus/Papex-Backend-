@@ -12,7 +12,7 @@ from rest_framework.response import Response
 
 from api.booking.models import SlotQuota
 from api.lead_status.models import LeadStatus
-from api.leads.constants import RDV_CONFIRME
+from api.leads.constants import RDV_CONFIRME, RDV_A_CONFIRMER, A_RAPPELER, ABSENT
 from api.leads.models import Lead
 from api.leads.permissions import IsConseillerOrAdmin, IsLeadCreator
 from api.leads.serializers import LeadSerializer
@@ -33,8 +33,8 @@ class LeadViewSet(viewsets.ModelViewSet):
     ViewSet principal pour la gestion des leads.
 
     Règle métier :
-    👉 Tout rendez-vous pris est CONFIRMÉ immédiatement.
-    👉 Le statut RDV_PLANIFIE n'est plus utilisé.
+    👉 Lorsqu’un lead est créé, le rendez-vous est en statut RDV_A_CONFIRMER.
+    👉 La confirmation (RDV_CONFIRME) intervient plus tard dans le workflow.
     """
 
     serializer_class = LeadSerializer
@@ -97,12 +97,19 @@ class LeadViewSet(viewsets.ModelViewSet):
         self._send_notifications(lead)
 
     def _get_default_status(self):
+        """
+        Statut par défaut à la création d’un lead :
+        👉 RDV_A_CONFIRMER
+        """
         try:
-            return LeadStatus.objects.get(code=RDV_CONFIRME)
+            return LeadStatus.objects.get(code=RDV_A_CONFIRMER)
         except LeadStatus.DoesNotExist:
-            raise NotFound("Le statut RDV_CONFIRME n'existe pas en base.")
+            raise NotFound("Le statut RDV_A_CONFIRMER n'existe pas en base.")
 
     def _send_notifications(self, lead):
+        """
+        Notifications envoyées UNIQUEMENT quand le RDV est CONFIRMÉ.
+        """
         if getattr(lead.status, "code", None) != RDV_CONFIRME:
             return
 
@@ -144,7 +151,8 @@ class LeadViewSet(viewsets.ModelViewSet):
     def public_create(self, request):
         """
         Création publique d’un lead.
-        👉 Le RDV est CONFIRMÉ immédiatement.
+
+        👉 Le RDV est créé avec le statut RDV_A_CONFIRMER.
         👉 SlotQuota sécurisé en transaction.
         """
         serializer = self.get_serializer(data=request.data)
@@ -184,9 +192,33 @@ class LeadViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="count-by-status")
     def count_by_status(self, request):
-        status = LeadStatus.objects.filter(code=RDV_CONFIRME).first()
-        count = Lead.objects.filter(status=status).count() if status else 0
-        return Response({RDV_CONFIRME: count})
+        """
+        Retourne le nombre total de leads par statut clé
+        (utilisé pour le dashboard).
+        """
+
+        statuses = [
+            RDV_A_CONFIRMER,
+            A_RAPPELER,
+            RDV_CONFIRME,
+            ABSENT,
+        ]
+
+        # Récupération des statuts existants en base
+        status_qs = LeadStatus.objects.filter(code__in=statuses)
+        status_map = {status.code: status for status in status_qs}
+
+        # Comptage par statut
+        data = {}
+        for code in statuses:
+            status_obj = status_map.get(code)
+            data[code] = (
+                Lead.objects.filter(status=status_obj).count()
+                if status_obj
+                else 0
+            )
+
+        return Response(data)
 
     @action(detail=False, methods=["get"], url_path="rdv-by-date")
     def rdv_by_date(self, request):
