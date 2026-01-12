@@ -83,6 +83,7 @@ LOCAL_APPS = [
     "api.user_unavailability",
     "api.job",
     "api.sms",
+    "api.core",
     "api.candidate",
 ]
 

@@ -32,7 +32,7 @@ def send_reminder_notifications(self):
     - last_reminder_sent est posé quoi qu’il arrive
     """
     now = timezone.now()
-    tomorrow = now.date() + timedelta(days=1)
+    tomorrow = now.date() + timedelta(days=2)
 
     leads = Lead.objects.filter(
         status__code=RDV_CONFIRME,
