@@ -110,7 +110,7 @@ class LeadViewSet(viewsets.ModelViewSet):
         """
         Notifications envoyées UNIQUEMENT quand le RDV est CONFIRMÉ.
         """
-        if getattr(lead.status, "code", None) != RDV_CONFIRME:
+        if getattr(lead.status, "code", None) != RDV_A_CONFIRMER:
             return
 
         # 📧 Email
