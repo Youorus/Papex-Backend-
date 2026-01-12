@@ -1,6 +1,10 @@
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from api.leads.constants import (
+    RDV_PRESENTIEL,
+    APPOINTMENT_TYPE_CHOICES,
+)
 
 from api.lead_status.models import LeadStatus
 from api.leads.constants import RDV_CONFIRME, RDV_PLANIFIE
@@ -67,6 +71,13 @@ class Lead(models.Model):
         blank=True,
         verbose_name=_("dernier rappel envoyé"),
         help_text=_("Date et heure du dernier rappel J-1 envoyé (email et SMS)"),
+    )
+    appointment_type = models.CharField(
+        max_length=20,
+        choices=APPOINTMENT_TYPE_CHOICES,
+        default=RDV_PRESENTIEL,
+        verbose_name=_("type de rendez-vous"),
+        help_text=_("Mode du rendez-vous : présentiel, téléphonique ou visio"),
     )
 
     created_at = models.DateTimeField(
