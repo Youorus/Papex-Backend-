@@ -36,15 +36,27 @@ class LeadViewSet(viewsets.ModelViewSet):
     permission_classes = [IsLeadCreator]
 
     # Configuration des filtres standards (remplace tes méthodes manuelles)
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
     filterset_fields = {
-        'status': ['exact'],
+        'status__code': ['exact'],  # ex: RDV_CONFIRME
         'appointment_type': ['exact'],
-        'appointment_date': ['date', 'exact'],
-        'created_at': ['date'],
+        'appointment_date': ['exact', 'date'],  # appointment_date__date=YYYY-MM-DD
+        'created_at': ['date'],  # created_at__date=YYYY-MM-DD
     }
-    search_fields = ['first_name', 'last_name', 'phone', 'email']
-    ordering_fields = ['created_at', 'appointment_date']
+    search_fields = [
+        'first_name',
+        'last_name',
+        'phone',
+        'email',
+    ]
+    ordering_fields = [
+        'created_at',
+        'appointment_date',
+    ]
     ordering = ['-created_at']
 
     # =====================
@@ -53,17 +65,32 @@ class LeadViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Optimisation SQL : select_related pour les FK et prefetch_related pour les M2M.
-        Évite le problème N+1 (1 seule requête au lieu de 100).
+        Queryset optimisé + filtrage par rôle utilisateur.
+        - select_related : FK
+        - prefetch_related : M2M
+        - évite N+1
+        - garantit que chaque utilisateur ne voit QUE ses leads
         """
-        return Lead.objects.select_related(
+        qs = Lead.objects.select_related(
             'status',
             'statut_dossier',
-            'statut_dossier_interne'
+            'statut_dossier_interne',
         ).prefetch_related(
             'assigned_to',
-            'jurist_assigned'
+            'jurist_assigned',
         )
+
+        user = self.request.user
+
+        # 🔒 Sécurité métier par rôle
+        if user.role == UserRoles.CONSEILLER:
+            qs = qs.filter(assigned_to=user)
+
+        elif user.role == UserRoles.JURISTE:
+            qs = qs.filter(jurist_assigned=user)
+
+        # ADMIN & ACCUEIL → accès global
+        return qs
 
     # =====================
     # PERMISSIONS
