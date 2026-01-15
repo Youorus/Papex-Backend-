@@ -53,6 +53,7 @@ THIRD_PARTY_APPS = [
     "channels",
     "django_celery_beat",
     "django_extensions",
+    "django_filters",
     "background_task",
     "rest_framework",
     "rest_framework_simplejwt",
