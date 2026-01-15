@@ -39,6 +39,8 @@ api_urlpatterns = [
 
     path("jobs/", include("api.job.urls")),
 
+    path("phone/", include("api.phone.urls")),
+
     path("candidates/", include("api.candidate.urls")),
 
     path("ping/", include("api.ping.urls"))

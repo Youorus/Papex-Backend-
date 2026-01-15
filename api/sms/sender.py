@@ -4,7 +4,7 @@ import logging
 import ovh
 from django.conf import settings
 
-from .client import get_ovh_client
+from .client import get_ovh_sms_client
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +19,19 @@ def send_sms(
         logger.warning("📵 Aucun destinataire SMS fourni")
         return
 
-    client = get_ovh_client()
+    client = get_ovh_sms_client()
 
     try:
         result = client.post(
-            f"/sms/{settings.SERVICE_SMS}/jobs",
-            sender=sender or settings.SENDER,
+            f"/sms/{settings.OVH_SMS_SERVICE_NAME}/jobs",
+            sender=sender or settings.OVH_SMS_SENDER,
             message=message,
             receivers=receivers,
         )
-        logger.info(f"📲 SMS envoyé à {receivers} — job={result.get('id')}")
+
+        logger.info(
+            f"📲 SMS envoyé à {receivers} — job={result.get('id')}"
+        )
         return result
 
     except ovh.exceptions.APIError as e:

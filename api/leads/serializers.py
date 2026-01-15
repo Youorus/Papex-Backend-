@@ -156,12 +156,11 @@ class LeadSerializer(serializers.ModelSerializer):
                     "required": "Le numéro de téléphone est requis",
                 },
             },
+            # ✅ Email rendu optionnel ici
             "email": {
-                "allow_blank": False,
-                "error_messages": {
-                    "blank": "L'email est requis",
-                    "required": "L'email est requis",
-                },
+                "required": False,
+                "allow_null": True,
+                "allow_blank": True,
             },
             "created_at": {"read_only": True},
         }
@@ -187,6 +186,10 @@ class LeadSerializer(serializers.ModelSerializer):
     # =====================
 
     def validate_email(self, value):
+        # ✅ Si la valeur est vide ou nulle, on retourne None sans valider l'unicité
+        if not value:
+            return None
+
         email = value.lower().strip()
 
         qs = Lead.objects.filter(email__iexact=email)

@@ -84,6 +84,7 @@ LOCAL_APPS = [
     "api.job",
     "api.sms",
     "api.core",
+    "api.phone",
     "api.candidate",
 ]
 
@@ -166,7 +167,7 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 100,
+    "PAGE_SIZE": 5,
 }
 
 SIMPLE_JWT = {
@@ -214,11 +215,21 @@ SERVER_EMAIL = os.getenv("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
 # -----------------------------------------------------------------------------
 # OVH SMS
 # -----------------------------------------------------------------------------
-APP_KEY = os.getenv("APP_KEY")
-APP_SECRET = os.getenv("APP_SECRET")
-CONSUMER_KEY = os.getenv("CONSUMER_KEY")
-SERVICE_SMS = os.getenv("SERVICE_SMS")
-SENDER = os.getenv("SENDER", "PAPEX")
+OVH_SMS_APP_KEY = os.getenv("OVH_SMS_APP_KEY")
+OVH_SMS_APP_SECRET = os.getenv("OVH_SMS_APP_SECRET")
+OVH_SMS_CONSUMER_KEY = os.getenv("OVH_SMS_CONSUMER_KEY")
+OVH_SMS_SERVICE_NAME = os.getenv("OVH_SMS_SERVICE_NAME")
+OVH_SMS_SENDER = os.getenv("OVH_SMS_SENDER", "PAPEX")
+
+
+
+OVH_PHONE_APP_KEY = os.getenv("OVH_PHONE_APP_KEY")
+OVH_PHONE_APP_SECRET = os.getenv("OVH_PHONE_APP_SECRET")
+OVH_PHONE_CONSUMER_KEY = os.getenv("OVH_PHONE_CONSUMER_KEY")
+
+OVH_PHONE_BILLING_ACCOUNT = os.getenv("OVH_PHONE_BILLING_ACCOUNT")
+OVH_PHONE_SIP_LINE = os.getenv("OVH_PHONE_SIP_LINE")
+
 
 WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH")
 

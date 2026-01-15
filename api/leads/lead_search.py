@@ -71,9 +71,11 @@ class LeadSearchView(APIView):
 
         # --- Pagination ---
         page = max(_to_int_or_none(params.get("page")) or 1, 1)
-        page_size = min(max(_to_int_or_none(params.get("page_size")) or 20, 1), 200)
-        ordering = params.get("ordering", "-created_at")
 
+        # MODIFICATION ICI : On passe de 20 à 6 par défaut, et on réduit le max à 50
+        page_size = min(max(_to_int_or_none(params.get("page_size")) or 6, 1), 50)
+
+        ordering = params.get("ordering", "-created_at")
         # --- Base queryset ---
         ThroughConseiller = Lead.assigned_to.through
         ThroughJurist = Lead.jurist_assigned.through
