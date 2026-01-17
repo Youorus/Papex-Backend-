@@ -11,25 +11,33 @@ class ClickToCallView(APIView):
 
     def _format_number(self, phone: str) -> str:
         """
-        Utilitaire interne pour nettoyer le numéro pour OVH.
-        Convertit +33 ou 06... en 0033...
+        Format E.164 pour OVH SIP
+        Résultat final : +33XXXXXXXXX
         """
         if not phone:
             return ""
 
-        # 1. Supprimer les espaces, points, tirets
-        clean = phone.replace(" ", "").replace(".", "").replace("-", "")
+        # Nettoyage
+        clean = (
+            phone.replace(" ", "")
+            .replace(".", "")
+            .replace("-", "")
+        )
 
-        # 2. Remplacer le "+" initial par "00" (ex: +336... -> 00336...)
+        # Déjà au bon format
         if clean.startswith("+"):
-            clean = clean.replace("+", "00", 1)
+            return clean
 
-        # 3. Gérer le format français local (ex: 0612... -> 0033612...)
-        # On vérifie que ça commence par 0 mais PAS par 00
-        elif clean.startswith("0") and not clean.startswith("00"):
-            clean = "0033" + clean[1:]
+        # Format 00 -> +
+        if clean.startswith("00"):
+            return "+" + clean[2:]
 
-        return clean
+        # Format français local 06 / 07 / 01...
+        if clean.startswith("0"):
+            return "+33" + clean[1:]
+
+        # fallback sécurité
+        return "+" + clean
 
     def post(self, request):
         raw_phone_number = request.data.get('phone_number')

@@ -43,6 +43,7 @@ CELERY_TASK_QUEUES = (
     Queue("default"),
     Queue("emails"),
     Queue("sms"),
+    Queue("scheduler"),
 )
 
 CELERY_TASK_DEFAULT_QUEUE = "default"
@@ -351,6 +352,10 @@ CELERY_TASK_ROUTES = {
     # SMS
     "api.sms.*": {"queue": "sms"},
     "api.sms.**": {"queue": "sms"},
+
+    # Rappels & statuts
+    "api.leads.tasks.send_reminder_notifications": {"queue": "scheduler"},
+    "api.leads.tasks.mark_absent_leads": {"queue": "scheduler"},
 }
 
 # SSL pour rediss:// si un jour tu passes en TLS
