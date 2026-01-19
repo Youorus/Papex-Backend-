@@ -7,34 +7,48 @@ from api.users.roles import UserRoles
 
 class IsLeadCreator(BasePermission):
     """
-    - ADMIN et ACCUEIL peuvent créer (POST)
-    - Tous les utilisateurs authentifiés peuvent lire, modifier, supprimer
-    - Route spéciale `public_create` toujours ouverte (vue custom)
+    Permissions générales sur les leads.
+
+    - Route public_create : ouverte à tous
+    - Création (POST /leads/) :
+        ADMIN, ACCUEIL, CONSEILLER, JURISTE
+    - Lecture / modification / suppression :
+        tout utilisateur authentifié
     """
 
     def has_permission(self, request, view):
-        # Route ouverte à tous
+        # Route publique
         if getattr(view, "action", None) == "public_create":
             return True
-        # Création classique (POST /leads/)
+
+        # Création d’un lead
         if view.action == "create":
-            return request.user.is_authenticated and getattr(
-                request.user, "role", None
-            ) in [UserRoles.ADMIN, UserRoles.ACCUEIL, UserRoles.CONSEILLER, UserRoles.JURISTE]
-        # Update/delete/read: tout utilisateur connecté
-        if request.user and request.user.is_authenticated:
-            return True
-        return False
+            return (
+                request.user
+                and request.user.is_authenticated
+                and request.user.role in [
+                    UserRoles.ADMIN,
+                    UserRoles.ACCUEIL,
+                    UserRoles.CONSEILLER,
+                    UserRoles.JURISTE,
+                ]
+            )
+
+        # Lecture / modification / suppression
+        return bool(request.user and request.user.is_authenticated)
 
 
 class IsConseillerOrAdmin(BasePermission):
     """
-    Seuls les CONSEILLER ou ADMIN peuvent assigner ou se désassigner.
+    Seuls ADMIN ou CONSEILLER peuvent gérer les assignations.
     """
 
     def has_permission(self, request, view):
-        return (
-                request.user
-                and request.user.is_authenticated
-                and request.user.role in [UserRoles.ADMIN, UserRoles.CONSEILLER]
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and request.user.role in [
+                UserRoles.ADMIN,
+                UserRoles.CONSEILLER,
+            ]
         )

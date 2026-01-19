@@ -45,10 +45,20 @@ class LeadViewSet(viewsets.ModelViewSet):
     # =====================
 
     def get_queryset(self):
-        queryset = Lead.objects.all()
+        user = self.request.user
+
+        queryset = Lead.objects.all().prefetch_related(
+            "assigned_to",
+            "jurist_assigned",
+        )
+        # 🔒 AVOCAT : uniquement ses leads
+        if user.is_authenticated and user.role == UserRoles.AVOCAT:
+            queryset = queryset.filter(assigned_to=user)
+
         queryset = self._filter_by_search(queryset)
         queryset = self._filter_by_status(queryset)
         queryset = self._filter_by_date(queryset)
+
         return queryset.order_by("-created_at")
 
     def _filter_by_search(self, queryset):
@@ -271,16 +281,18 @@ class LeadViewSet(viewsets.ModelViewSet):
         assign_ids = request.data.get("assign", [])
         unassign_ids = request.data.get("unassign", [])
 
+        # ✅ AUTO-ASSIGNATION
         if action_type == "assign":
             lead.assigned_to.add(user)
+
         elif action_type == "unassign":
             lead.assigned_to.remove(user)
 
+        # ✅ ADMIN ASSIGNE D’AUTRES UTILISATEURS
         elif user.role == UserRoles.ADMIN:
             if assign_ids:
                 users = User.objects.filter(
                     id__in=assign_ids,
-                    role=UserRoles.CONSEILLER,
                     is_active=True,
                 )
                 lead.assigned_to.add(*users)
@@ -301,30 +313,33 @@ class LeadViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["patch"], url_path="assign-juristes")
     def assign_juristes(self, request, pk=None):
         user = request.user
+
+        # 🔒 ADMIN UNIQUEMENT
         if user.role != UserRoles.ADMIN:
             raise PermissionDenied("Admin requis.")
 
         lead = self.get_object()
+
         assign_ids = request.data.get("assign", [])
         unassign_ids = request.data.get("unassign", [])
 
         if assign_ids:
-            juristes = User.objects.filter(
+            users = User.objects.filter(
                 id__in=assign_ids,
-                role=UserRoles.JURISTE,
+                role__in=[UserRoles.JURISTE, UserRoles.AVOCAT],
                 is_active=True,
             )
-            lead.jurist_assigned.add(*juristes)
+            lead.jurist_assigned.add(*users)
 
-            if lead.email and juristes.exists():
+            if lead.email and users.exists():
                 send_jurist_assigned_notification_task.delay(
                     lead.id,
-                    juristes.first().id,
+                    users.first().id,
                 )
 
         if unassign_ids:
-            juristes = User.objects.filter(id__in=unassign_ids)
-            lead.jurist_assigned.remove(*juristes)
+            users = User.objects.filter(id__in=unassign_ids)
+            lead.jurist_assigned.remove(*users)
 
         lead.save()
         return Response(self.get_serializer(lead).data)
