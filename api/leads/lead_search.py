@@ -75,7 +75,6 @@ class LeadSearchView(APIView):
         # MODIFICATION ICI : On passe de 20 à 6 par défaut, et on réduit le max à 50
         page_size = min(max(_to_int_or_none(params.get("page_size")) or 6, 1), 50)
 
-        ordering = params.get("ordering", "-created_at")
         # --- Base queryset ---
         ThroughConseiller = Lead.assigned_to.through
         ThroughJurist = Lead.jurist_assigned.through
@@ -106,15 +105,23 @@ class LeadSearchView(APIView):
         elif appt_to:
             qs = qs.filter(appointment_date__date__lte=appt_to.date())
 
-        if status_id is not None: qs = qs.filter(status_id=status_id)
-        elif status_code: qs = qs.filter(status__code=status_code)
-        if dossier_id is not None: qs = qs.filter(statut_dossier_id=dossier_id)
-        elif dossier_code: qs = qs.filter(statut_dossier__code=dossier_code)
+        if status_id is not None:
+            qs = qs.filter(status_id=status_id)
+        elif status_code:
+            qs = qs.filter(status__code=status_code)
+        if dossier_id is not None:
+            qs = qs.filter(statut_dossier_id=dossier_id)
+        elif dossier_code:
+            qs = qs.filter(statut_dossier__code=dossier_code)
 
-        if has_jurist == "avec": qs = qs.filter(has_jurist=True)
-        elif has_jurist == "sans": qs = qs.filter(has_jurist=False)
-        if has_conseiller == "avec": qs = qs.filter(has_conseiller=True)
-        elif has_conseiller == "sans": qs = qs.filter(has_conseiller=False)
+        if has_jurist == "avec":
+            qs = qs.filter(has_jurist=True)
+        elif has_jurist == "sans":
+            qs = qs.filter(has_jurist=False)
+        if has_conseiller == "avec":
+            qs = qs.filter(has_conseiller=True)
+        elif has_conseiller == "sans":
+            qs = qs.filter(has_conseiller=False)
 
         total = qs.count()
 
@@ -134,6 +141,12 @@ class LeadSearchView(APIView):
         ).count()
 
         # --- Pagination ---
+        # MODIFICATION : Si on filtre sur les dates de RDV, on trie par date de RDV chronologique
+        if appt_from or appt_to:
+            ordering = "appointment_date"  # Tri chronologique des RDV à venir
+        else:
+            ordering = params.get("ordering", "-created_at")
+
         qs = qs.order_by(ordering)
         start = (page - 1) * page_size
         leads = qs[start:start + page_size]
@@ -147,7 +160,7 @@ class LeadSearchView(APIView):
                 "phone": lead.phone,
                 "created_at": lead.created_at,
                 "appointment_date": lead.appointment_date,
-                "appointment_type": lead.appointment_type, # <--- Récupération directe du modèle
+                "appointment_type": lead.appointment_type,  # <--- Récupération directe du modèle
                 "status_id": lead.status_id,
                 "statut_dossier_id": lead.statut_dossier_id,
                 "lead_status_code": lead.lead_status_code,
