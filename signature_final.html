@@ -2,58 +2,167 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Signature Alignée Logo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signature Papiers-Express</title>
+<style>
+    /* Styles de base */
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: Helvetica, Arial, sans-serif;
+    }
+
+    /* Responsive styles */
+    @media only screen and (max-width: 600px) {
+        .signature-table {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+
+        .logo-column {
+            display: block !important;
+            width: 100% !important;
+            padding: 0 !important;
+            text-align: center !important;
+            margin-bottom: 20px !important;
+        }
+
+        .separator-column {
+            display: none !important;
+        }
+
+        .contact-column {
+            display: block !important;
+            width: 100% !important;
+            padding: 0 10px !important;
+            text-align: center !important;
+        }
+
+        .photo-image {
+            width: 120px !important;
+            height: 120px !important;
+        }
+
+        .name-text {
+            font-size: 22px !important;
+            text-align: center !important;
+        }
+
+        .job-title-text {
+            font-size: 14px !important;
+            text-align: center !important;
+        }
+
+        .contact-info {
+            text-align: center !important;
+        }
+    }
+</style>
 </head>
 <body style="margin:0;padding:0;">
 
-<table cellpadding="0" cellspacing="0" border="0" style="font-family: Helvetica, Arial, sans-serif; font-size: 14px; color: #333333;">
+<table cellpadding="0" cellspacing="0" border="0" class="signature-table" style="font-family: Helvetica, Arial, sans-serif; font-size: 14px; color: #333333; max-width: 650px; width: 100%;">
     <tr>
-        <td valign="top" style="padding-right: 30px;"> <table cellpadding="0" cellspacing="0" border="0" width="100%">
+        <!-- Logo Section -->
+        <td valign="middle" class="logo-column" style="padding-right: 35px; vertical-align: middle; text-align: center;">
+            <table cellpadding="0" cellspacing="0" border="0" width="100%">
                 <tr>
-                    <td align="left" style="padding-bottom: 20px;">
-                        <img src="https://papiers-express.fr/logo.png" alt="Papiers-Express" width="130" style="display: block; border:0;">
+                    <td align="center" style="padding-bottom: 20px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td
+                                    width="150"
+                                    height="150"
+                                    align="center"
+                                    valign="middle"
+                                    style="
+                                        background-color: #ffffff;
+                                        border-radius: 50%;
+                                        overflow: hidden;
+                                        width: 150px;
+                                        height: 150px;
+                                    "
+                                >
+                                    <img
+                                        src="https://papiers-express.fr/icone.jpeg"
+                                        alt="Papiers-Express"
+                                        class="photo-image"
+                                        width="150"
+                                        height="150"
+                                        style="
+                                            display: block;
+                                            border: 0;
+                                            width: 150px;
+                                            height: 150px;
+                                            object-fit: cover;
+                                        "
+                                    />
+                                </td>
+                            </tr>
+                        </table>
                     </td>
                 </tr>
-            </table>
 
-            <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                    <td style="padding-right: 5px;">
-                        <a href="https://instagram.com/papiers.express" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" width="24" height="24" style="display: block; border:0;"></a>
-                    </td>
-                    <td style="padding-right: 5px;">
-                        <a href="https://facebook.com/papiers.express" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" width="24" height="24" style="display: block; border:0;"></a>
-                    </td>
-                    <td>
-                        <a href="https://tiktok.com/@papiers.express" target="_blank"><img src="https://cdn-icons-png.flaticon.com/512/3046/3046121.png" width="24" height="24" style="display: block; border:0;"></a>
+                    <td align="center">
+                        <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+                            <tr>
+                                <td style="padding: 0 6px;">
+                                    <a href="https://instagram.com/papiers.express" target="_blank" style="display: block;">
+                                        <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" width="32" height="32" style="display: block; border:0; border-radius: 50%; transition: opacity 0.3s;">
+                                    </a>
+                                </td>
+                                <td style="padding: 0 6px;">
+                                    <a href="https://www.facebook.com/profile.php?id=61585332640816" target="_blank" style="display: block;">
+                                        <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" width="32" height="32" style="display: block; border:0; border-radius: 50%; transition: opacity 0.3s;">
+                                    </a>
+                                </td>
+                                <td style="padding: 0 6px;">
+                                    <a href="https://tiktok.com/@papiers.express" target="_blank" style="display: block;">
+                                        <img src="https://cdn-icons-png.flaticon.com/512/3046/3046121.png" width="32" height="32" style="display: block; border:0; border-radius: 50%; transition: opacity 0.3s;">
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
                     </td>
                 </tr>
             </table>
         </td>
 
-        <td valign="top" style="border-left: 1px solid #eeeeee; padding-left: 30px;"> <p style="margin: 0 0 5px 0; font-size: 22px; font-weight: bold; color: #4169E1; line-height: 1.2;">
-                Marc Takoumba
+        <!-- Vertical Separator -->
+        <td class="separator-column" style="width: 3px; background: linear-gradient(to bottom, #4169E1, #6B8FE8); height: 180px; border-radius: 2px;"></td>
+
+        <!-- Contact Information Section -->
+        <td valign="middle" class="contact-column" style="padding-left: 30px; vertical-align: middle;">
+            <!-- Name -->
+            <p class="name-text" style="margin: 0 0 5px 0; font-size: 26px; font-weight: bold; color: #4169E1; line-height: 1.2; letter-spacing: -0.5px;">
+                Cédric Sakande
             </p>
 
-            <p style="margin: 0 0 5px 0; font-size: 15px; font-weight: bold; color: #222222;">
-                Responsable IT
+            <!-- Job Title -->
+            <p class="job-title-text" style="margin: 0 0 18px 0; font-size: 15px; font-weight: 600; color: #555555; line-height: 1.3; text-transform: uppercase; letter-spacing: 0.5px;">
+                Directeur général
             </p>
 
-            <p style="margin: 0 0 25px 0;"> <a href="mailto:marc.takoumba@papiers-express.fr" style="color: #4169E1; text-decoration: none;">marc.takoumba@papiers-express.fr</a>
+            <!-- Email with highlight -->
+            <p class="contact-info" style="margin: 0 0 8px 0; font-size: 14px; line-height: 1.4;">
+                <a href="mailto:cedric.sakande@papiers-express.fr" style="color: #4169E1; text-decoration: none; background: #F0F4FF; padding: 4px 10px; border-radius: 4px; display: inline-block; font-weight: 500;">cedric.sakande@papiers-express.fr</a>
             </p>
 
-            <p style="margin: 0 0 5px 0;">
-                Tél : <a href="tel:{{PHONE_RAW}}" style="color: #333333; text-decoration: none;">{{PHONE_DISPLAY}}</a>
+            <!-- Phone numbers -->
+            <p class="contact-info" style="margin: 0 0 8px 0; font-size: 14px; line-height: 1.4; color: #333333;">
+                <a href="tel:+33142596008" style="color: #333333; text-decoration: none; font-weight: 500;">+33 (0)1 42 59 60 08</a> <span style="color: #CCCCCC;">|</span> <a href="tel:+33631018426" style="color: #333333; text-decoration: none; font-weight: 500;">06 31 01 84 26</a>
             </p>
 
-            <p style="margin: 0 0 5px 0;">
-               39 rue Navier, 75017 Paris
+            <!-- Address -->
+            <p class="contact-info" style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.4; color: #666666;">
+                39 rue Navier, 75017 Paris, France
             </p>
 
-             <p style="margin: 0;">
-               <a href="https://papiers-express.fr" target="_blank" style="color: #4169E1; text-decoration: none; font-weight: bold;">papiers-express.fr</a>
+            <!-- Website link with decoration -->
+            <p class="contact-info" style="margin: 0; font-size: 13px; line-height: 1.4;">
+                <a href="https://papiers-express.fr" target="_blank" style="color: #4169E1; text-decoration: none; font-weight: 600; border-bottom: 2px solid #4169E1; padding-bottom: 2px;">https://papiers-express.fr</a>
             </p>
-
         </td>
     </tr>
 </table>

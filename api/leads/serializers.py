@@ -203,6 +203,26 @@ class LeadSerializer(serializers.ModelSerializer):
 
         return email
 
+    def validate_phone(self, value):
+        if not value:
+            return value
+
+        phone = value.strip()
+
+        qs = Lead.objects.filter(phone=phone)
+
+        # En cas de modification (update)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+
+        if qs.exists():
+            raise serializers.ValidationError(
+                "Ce numéro de téléphone est déjà utilisé. "
+                "Veuillez nous contacter au  (+33 1 42 59 60 08 ) ou utiliser un autre numéro."
+            )
+
+        return phone
+
     def validate_first_name(self, value):
         return value.capitalize()
 
