@@ -8,6 +8,7 @@ import dj_database_url
 from kombu import Queue
 from dotenv import load_dotenv
 from redis import SSLConnection
+from celery.schedules import crontab
 
 # -----------------------------------------------------------------------------
 # ENV
@@ -52,7 +53,6 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "storages",
     "channels",
-    "django_celery_beat",
     "django_extensions",
     "django_filters",
     "background_task",
@@ -151,6 +151,8 @@ LANGUAGE_CODE = "fr-fr"
 TIME_ZONE = "Europe/Paris"
 USE_I18N = True
 USE_TZ = True
+CELERY_ENABLE_UTC = True
+CELERY_TIMEZONE = "Europe/Paris"
 
 # -----------------------------------------------------------------------------
 # REST + JWT
@@ -358,16 +360,37 @@ CELERY_TASK_ROUTES = {
     "api.leads.tasks.mark_absent_leads": {"queue": "scheduler"},
 }
 
+CELERY_BEAT_SCHEDULE = {
+    "send-lead-reminders": {
+        "task": "api.leads.tasks.send_appointment_reminders",
+        "schedule": crontab(hour=7, minute=0),
+        "options": {"queue": "scheduler"},
+    },
+
+    "mark-leads-absent": {
+        "task": "api.leads.tasks.mark_absent_leads",
+        "schedule": crontab(minute="*/30"),
+        "options": {"queue": "scheduler"},
+    },
+}
+
 # SSL pour rediss:// si un jour tu passes en TLS
 if IS_REDIS_SSL:
     CELERY_BROKER_TRANSPORT_OPTIONS["ssl_cert_reqs"] = ssl.CERT_NONE
 
 # 🔥 LE RÉGLAGE QUI ÉVITE LES MESSAGES "RÉSERVÉS MAIS PAS TRAITÉS"
-worker_prefetch_multiplier = int(os.getenv("CELERY_PREFETCH_MULTIPLIER", "1"))
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(
+    os.getenv("CELERY_PREFETCH_MULTIPLIER", "1")
+)
 
-# Comportement ACK solide en cas de coupure broker
-task_acks_late = os.getenv("CELERY_ACKS_LATE", "true").lower() in ("true", "1")
-task_reject_on_worker_lost = os.getenv("CELERY_REJECT_ON_WORKER_LOST", "true").lower() in ("true", "1")
+CELERY_TASK_ACKS_LATE = os.getenv(
+    "CELERY_ACKS_LATE", "true"
+).lower() in ("true", "1")
+
+CELERY_TASK_REJECT_ON_WORKER_LOST = os.getenv(
+    "CELERY_REJECT_ON_WORKER_LOST", "true"
+).lower() in ("true", "1")
+
 
 # Anticipation Celery 6 (ne pas tuer les tâches longues par surprise)
 worker_cancel_long_running_tasks_on_connection_loss = (

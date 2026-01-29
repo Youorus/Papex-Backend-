@@ -96,8 +96,12 @@ class LeadSearchView(APIView):
         )
 
         # --- Filters ---
-        if date_from: qs = qs.filter(created_at__gte=date_from)
-        if date_to: qs = qs.filter(created_at__lte=date_to)
+        if date_from and date_to:
+            qs = qs.filter(created_at__date__range=(date_from.date(), date_to.date()))
+        elif date_from:
+            qs = qs.filter(created_at__date__gte=date_from.date())
+        elif date_to:
+            qs = qs.filter(created_at__date__lte=date_to.date())
         if appt_from and appt_to:
             qs = qs.filter(appointment_date__date__range=(appt_from.date(), appt_to.date()))
         elif appt_from:
