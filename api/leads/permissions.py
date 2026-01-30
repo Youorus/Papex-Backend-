@@ -52,3 +52,24 @@ class IsConseillerOrAdmin(BasePermission):
                 UserRoles.CONSEILLER,
             ]
         )
+
+
+
+class CanAssignLead(BasePermission):
+    """
+    ADMIN, CONSEILLER et JURISTE peuvent accéder à l'endpoint d'assignation.
+    - ADMIN : peut assigner/désassigner n'importe qui
+    - CONSEILLER / JURISTE : auto-assignation uniquement
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        if not user or not user.is_authenticated:
+            return False
+
+        return user.role in [
+            UserRoles.ADMIN,
+            UserRoles.CONSEILLER,
+            UserRoles.JURISTE,
+        ]

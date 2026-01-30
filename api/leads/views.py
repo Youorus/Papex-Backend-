@@ -14,7 +14,7 @@ from api.booking.models import SlotQuota
 from api.lead_status.models import LeadStatus
 from api.leads.constants import RDV_CONFIRME, RDV_A_CONFIRMER, A_RAPPELER, ABSENT
 from api.leads.models import Lead
-from api.leads.permissions import IsConseillerOrAdmin, IsLeadCreator
+from api.leads.permissions import IsConseillerOrAdmin, IsLeadCreator, CanAssignLead
 from api.leads.serializers import LeadSerializer
 from api.sms.tasks import send_appointment_confirmation_sms_task
 from api.users.models import User
@@ -95,7 +95,7 @@ class LeadViewSet(viewsets.ModelViewSet):
         if self.action == "public_create":
             return [AllowAny()]
         if self.action in ["assignment", "request_assignment"]:
-            return [IsConseillerOrAdmin()]
+            return [CanAssignLead()]
         return super().get_permissions()
 
     # =====================
@@ -274,21 +274,30 @@ class LeadViewSet(viewsets.ModelViewSet):
         lead = self.get_object()
         user = request.user
 
-        if user.role not in [UserRoles.ADMIN, UserRoles.CONSEILLER]:
-            raise PermissionDenied("Accès interdit.")
-
         action_type = request.data.get("action")
         assign_ids = request.data.get("assign", [])
         unassign_ids = request.data.get("unassign", [])
 
-        # ✅ AUTO-ASSIGNATION
+        # 🔐 Accès minimal autorisé
+        if user.role not in [
+            UserRoles.ADMIN,
+            UserRoles.CONSEILLER,
+            UserRoles.JURISTE,
+        ]:
+            raise PermissionDenied("Accès interdit.")
+
+        # =========================
+        # AUTO-ASSIGNATION
+        # =========================
         if action_type == "assign":
             lead.assigned_to.add(user)
 
         elif action_type == "unassign":
             lead.assigned_to.remove(user)
 
-        # ✅ ADMIN ASSIGNE D’AUTRES UTILISATEURS
+        # =========================
+        # ADMIN — GESTION COMPLÈTE
+        # =========================
         elif user.role == UserRoles.ADMIN:
             if assign_ids:
                 users = User.objects.filter(
@@ -304,7 +313,7 @@ class LeadViewSet(viewsets.ModelViewSet):
         else:
             return Response(
                 {"detail": "Action non autorisée."},
-                status=400,
+                status=403,
             )
 
         lead.save()
