@@ -554,6 +554,7 @@ class ContractSearchView(ViewSet):
                 "service_id",
                 "created_by_id",
                 "client__lead__first_name",
+                "client__lead_id",
                 "client__lead__last_name",
                 "client__lead__email",
                 "client__lead__phone",

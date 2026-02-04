@@ -37,6 +37,12 @@ class Client(models.Model):
         _("mot de passe du compte ANEF"), max_length=255, blank=True
     )
 
+    last_anef_notification_date = models.DateField(
+        _("date de la dernière notification ANEF"),
+        null=True,
+        blank=True,
+    )
+
     # Compte Démarches Simplifiées
     has_demarche_simplifiee_account = models.BooleanField(
         _("a un compte Démarches Simplifiées ?"), null=True, blank=True

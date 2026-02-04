@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.clients.models import Client
 from api.leads.models import Lead
 from api.contracts.models import Contract
 from api.leads.constants import RDV_CONFIRME, RDV_PLANIFIE
@@ -84,8 +85,20 @@ class LeadSearchView(APIView):
             .select_related("status", "statut_dossier")
             .prefetch_related("jurist_assigned", "assigned_to")
             .annotate(
-                has_conseiller=Exists(ThroughConseiller.objects.filter(lead_id=OuterRef("pk"))),
-                has_jurist=Exists(ThroughJurist.objects.filter(lead_id=OuterRef("pk"))),
+                has_conseiller=Exists(
+                    ThroughConseiller.objects.filter(lead_id=OuterRef("pk"))
+                ),
+                has_jurist=Exists(
+                    ThroughJurist.objects.filter(lead_id=OuterRef("pk"))
+                ),
+
+                # 🔥 AJOUT CRUCIAL
+                client_id=Subquery(
+                    Client.objects
+                    .filter(lead_id=OuterRef("pk"))
+                    .values("id")[:1]
+                ),
+
                 lead_status_code=F("status__code"),
                 lead_status_label=F("status__label"),
                 lead_status_color=F("status__color"),
@@ -158,6 +171,7 @@ class LeadSearchView(APIView):
         items = [
             {
                 "id": lead.id,
+                "client_id": lead.client_id,
                 "first_name": lead.first_name,
                 "last_name": lead.last_name,
                 "email": lead.email,
