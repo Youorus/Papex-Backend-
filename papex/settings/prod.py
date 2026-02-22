@@ -54,6 +54,7 @@ THIRD_PARTY_APPS = [
     "storages",
     "channels",
     "django_extensions",
+    "django_celery_beat",
     "django_filters",
     "background_task",
     "rest_framework",
@@ -356,7 +357,7 @@ CELERY_TASK_ROUTES = {
     "api.sms.**": {"queue": "sms"},
 
     # Rappels & statuts
-    "api.leads.tasks.send_reminder_notifications": {"queue": "scheduler"},
+    "api.leads.tasks.send_appointment_reminders": {"queue": "scheduler"},
     "api.leads.tasks.mark_absent_leads": {"queue": "scheduler"},
 }
 
