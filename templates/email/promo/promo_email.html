@@ -1,0 +1,124 @@
+{% extends "email/_layout_email.html" %}
+
+{% block subject %}
+Votre dossier est-il toujours bloqué à la Préfecture ?
+{% endblock %}
+
+{% block preview %}
+Découvrez comment vérifier rapidement si votre situation peut être débloquée.
+{% endblock %}
+
+{% block title %}
+Votre dossier est-il toujours en attente en préfecture ?
+{% endblock %}
+
+{% block email_content %}
+
+<p>
+Bonjour{% if user.first_name %} {{ user.first_name }}{% endif %},
+</p>
+
+<p>
+Votre dossier est-il toujours en attente en préfecture ?
+</p>
+
+<p>
+Chaque semaine, nous accompagnons des personnes qui attendent depuis des mois,
+souvent sans savoir qu’il est possible d’agir.
+</p>
+
+<p>
+Lorsque le dossier reste bloqué trop longtemps, cela peut entraîner :
+</p>
+
+<ul style="margin:15px 0;padding-left:20px;">
+  <li>Retard de renouvellement</li>
+  <li>Perte d’emploi</li>
+  <li>Refus implicite</li>
+  <li> Situation administrative fragile</li>
+</ul>
+
+<p>
+C’est précisément pour cela que nous avons mis en place un accompagnement complet
+de suivi de dossier.
+</p>
+
+<hr style="border:none;border-top:1px solid #e2e8f0;margin:25px 0;">
+
+<p style="font-weight:600;">
+Ce que nous faisons concrètement :
+</p>
+
+<ul style="margin:15px 0;padding-left:20px;">
+  <li>✔ Analyse personnalisée de votre situation</li>
+  <li>✔ Vérification complète du dossier</li>
+  <li>✔ Stratégie administrative adaptée</li>
+  <li>✔ Actions ciblées auprès des services concernés</li>
+  <li>✔ Suivi jusqu’à évolution</li>
+</ul>
+
+<!-- Bloc offre -->
+<table width="100%" cellpadding="0" cellspacing="0" style="margin:30px 0;border:2px solid #2563eb;border-radius:8px;">
+  <tr>
+    <td style="padding:25px;text-align:center;">
+
+      <div style="font-size:14px;color:#64748b;margin-bottom:10px;">
+        Offre exceptionnelle en cours
+      </div>
+
+      <div style="font-size:28px;text-decoration:line-through;color:#94a3b8;">
+        790 €
+      </div>
+
+      <div style="font-size:28px;font-weight:700;color:#2563eb;margin:10px 0;">
+        599 €
+      </div>
+
+      <div style="font-size:14px;color:#64748b;">
+        Soit <strong>191 € d’économie</strong>
+      </div>
+
+      <div style="margin-top:8px;font-size:13px;color:#64748b;">
+        Offre limitée aux prochains dossiers traités cette semaine
+      </div>
+
+    </td>
+  </tr>
+</table>
+
+<p>
+Si vous souhaitez vérifier si votre situation peut être débloquée rapidement :
+</p>
+
+<!-- CTA répondre -->
+<p style="text-align:center;font-size:16px;margin:25px 0;">
+<strong>👉 Répondez simplement à cet email par “OUI”</strong>
+</p>
+
+<p style="text-align:center;margin:15px 0;color:#64748b;">
+ou
+</p>
+
+<!-- CTA RDV -->
+<p style="text-align:center;margin:25px 0;">
+  <a href="https://crm.papiers-express.fr/rendez-vous"
+     style="background:#2563eb;color:#ffffff;padding:16px 30px;border-radius:6px;
+            text-decoration:none;font-weight:600;font-size:16px;display:inline-block;">
+     👉 Réserver un créneau maintenant
+  </a>
+</p>
+
+<p>
+Nous vous répondrons avec transparence et clarté.
+</p>
+
+<p>
+Ne laissez pas votre dossier en attente si une solution existe.
+</p>
+
+<p style="margin-top:30px;">
+À votre écoute,<br>
+<strong>L’équipe {{ company.name }}</strong>
+</p>
+
+{% endblock %}

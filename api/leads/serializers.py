@@ -13,6 +13,7 @@ from api.leads.constants import (
     APPOINTMENT_TYPE_CHOICES,
 )
 from api.leads.models import Lead
+from api.services.models import Service
 from api.statut_dossier.models import StatutDossier
 from api.statut_dossier.serializers import StatutDossierSerializer
 from api.statut_dossier_interne.models import StatutDossierInterne
@@ -24,13 +25,13 @@ from api.users.roles import UserRoles
 
 EUROPE_PARIS = ZoneInfo("Europe/Paris")
 
-# Statuts nécessitant obligatoirement un rendez-vous
 STATUSES_REQUIRING_APPOINTMENT = {RDV_CONFIRME, RDV_PLANIFIE}
 
 
 class LeadSerializer(serializers.ModelSerializer):
+
     # =====================
-    # FIELDS
+    # FIELDS EXISTANTS
     # =====================
 
     appointment_date = serializers.DateTimeField(
@@ -62,7 +63,42 @@ class LeadSerializer(serializers.ModelSerializer):
     statut_dossier_interne = StatutDossierInterneSerializer(read_only=True)
 
     # =====================
-    # WRITE-ONLY IDS
+    # CHAMPS MÉTIER
+    # =====================
+
+    service = serializers.PrimaryKeyRelatedField(
+        queryset=Service.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
+    service_display = serializers.CharField(
+        source="service.label",
+        read_only=True,
+    )
+
+    department_code = serializers.CharField(required=False, allow_blank=True)
+    is_urgent = serializers.BooleanField(required=False)
+
+    blocking_duration_bucket = serializers.CharField(
+        required=False,
+        allow_null=True,
+    )
+
+    blocking_duration_display = serializers.CharField(
+        source="get_blocking_duration_bucket_display",
+        read_only=True,
+    )
+
+    source = serializers.CharField(required=False)
+
+    source_display = serializers.CharField(
+        source="get_source_display",
+        read_only=True,
+    )
+
+    # =====================
+    # WRITE IDS
     # =====================
 
     status_id = serializers.PrimaryKeyRelatedField(
@@ -132,36 +168,20 @@ class LeadSerializer(serializers.ModelSerializer):
             "statut_dossier_interne_id",
             "jurist_assigned",
             "jurist_assigned_ids",
+
+            # qualification
+            "service",
+            "service_display",
+            "department_code",
+            "is_urgent",
+            "blocking_duration_bucket",
+            "blocking_duration_display",
+            "source",
+            "source_display",
         ]
 
         extra_kwargs = {
-            "first_name": {
-                "allow_blank": False,
-                "error_messages": {
-                    "blank": "Le prénom est requis",
-                    "required": "Le prénom est requis",
-                },
-            },
-            "last_name": {
-                "allow_blank": False,
-                "error_messages": {
-                    "blank": "Le nom est requis",
-                    "required": "Le nom est requis",
-                },
-            },
-            "phone": {
-                "allow_blank": False,
-                "error_messages": {
-                    "blank": "Le numéro de téléphone est requis",
-                    "required": "Le numéro de téléphone est requis",
-                },
-            },
-            # ✅ Email rendu optionnel ici
-            "email": {
-                "required": False,
-                "allow_null": True,
-                "allow_blank": True,
-            },
+            "email": {"required": False, "allow_null": True, "allow_blank": True},
             "created_at": {"read_only": True},
         }
 
@@ -186,7 +206,6 @@ class LeadSerializer(serializers.ModelSerializer):
     # =====================
 
     def validate_email(self, value):
-        # ✅ Si la valeur est vide ou nulle, on retourne None sans valider l'unicité
         if not value:
             return None
 
@@ -210,15 +229,13 @@ class LeadSerializer(serializers.ModelSerializer):
         phone = value.strip()
 
         qs = Lead.objects.filter(phone=phone)
-
-        # En cas de modification (update)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
 
         if qs.exists():
             raise serializers.ValidationError(
                 "Ce numéro de téléphone est déjà utilisé. "
-                "Veuillez nous contacter au  (+33 1 42 59 60 08 ) ou utiliser un autre numéro."
+                "Veuillez nous contacter au (+33 1 42 59 60 08) ou utiliser un autre numéro."
             )
 
         return phone
@@ -237,11 +254,7 @@ class LeadSerializer(serializers.ModelSerializer):
 
         if status and status.code in STATUSES_REQUIRING_APPOINTMENT and not appointment_date:
             raise serializers.ValidationError(
-                {
-                    "appointment_date": _(
-                        "Une date de rendez-vous est requise pour ce statut."
-                    )
-                }
+                {"appointment_date": _("Une date de rendez-vous est requise pour ce statut.")}
             )
 
         return super().validate(data)
@@ -255,23 +268,17 @@ class LeadSerializer(serializers.ModelSerializer):
 
         if instance.appointment_date:
             rep["appointment_date"] = (
-                instance.appointment_date
-                .astimezone(EUROPE_PARIS)
-                .strftime("%d/%m/%Y %H:%M")
+                instance.appointment_date.astimezone(EUROPE_PARIS).strftime("%d/%m/%Y %H:%M")
             )
 
         if instance.last_reminder_sent:
             rep["last_reminder_sent"] = (
-                instance.last_reminder_sent
-                .astimezone(EUROPE_PARIS)
-                .strftime("%d/%m/%Y %H:%M")
+                instance.last_reminder_sent.astimezone(EUROPE_PARIS).strftime("%d/%m/%Y %H:%M")
             )
         else:
             rep["last_reminder_sent"] = None
 
-        rep["status_display"] = (
-            instance.status.label if instance.status else None
-        )
+        rep["status_display"] = instance.status.label if instance.status else None
 
         rep["appointment_type_display"] = (
             instance.get_appointment_type_display()
