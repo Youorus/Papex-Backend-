@@ -141,21 +141,18 @@ class Lead(models.Model):
 
     # 💾 Logique métier
     def save(self, *args, **kwargs):
-        # Statut par défaut
-        if not self.status:
+        # Statut par défaut uniquement à la création (pas encore de PK)
+        if not self.pk and not self.status_id:
             try:
                 default_status = LeadStatus.objects.get(code=RDV_PLANIFIE)
                 self.status = default_status
             except LeadStatus.DoesNotExist:
                 pass
 
-        # Si RDV défini → statut confirmé
-        if self.appointment_date:
-            try:
-                confirmed_status = LeadStatus.objects.get(code=RDV_CONFIRME)
-                self.status = confirmed_status
-            except LeadStatus.DoesNotExist:
-                pass
+        # ✅ Bloc "Si RDV défini → statut confirmé" SUPPRIMÉ.
+        # Il écrasait le statut à RDV_CONFIRME à chaque save(),
+        # rendant impossible tout changement manuel de statut
+        # sur un lead ayant déjà un appointment_date.
 
         super().save(*args, **kwargs)
 
