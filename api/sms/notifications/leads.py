@@ -30,7 +30,7 @@ def normalize_phone(phone: str) -> str:
     elif phone.startswith("33"):
         phone = "+" + phone
 
-    # ✅ Validation stricte mobile FR (OVH-safe)
+    # Mobile FR uniquement
     if not re.match(r"^\+33[67]\d{8}$", phone):
         return ""
 
@@ -38,12 +38,24 @@ def normalize_phone(phone: str) -> str:
 
 
 # ======================================================
+# 👤 Nom affiché lead (prenom prioritaire)
+# ======================================================
+def get_lead_display_name(lead) -> str:
+    first = (lead.first_name or "").strip()
+    last = (lead.last_name or "").strip()
+
+    if first:
+        return first
+    if last:
+        return last
+
+    return ""
+
+
+# ======================================================
 # ✍️ Normalisation texte GSM 7-bit
 # ======================================================
 def normalize_sms(text: str) -> str:
-    """
-    Normalise le texte pour GSM 7-bit
-    """
     text = unicodedata.normalize("NFKD", text)
 
     replacements = {
@@ -82,10 +94,37 @@ def validate_sms_length(message: str) -> str:
 
     if len(shortened) > SMS_MAX_LENGTH:
         raise ValueError(
-            f"SMS trop long après optimisation ({len(shortened)} caractères)"
+            f"SMS trop long apres optimisation ({len(shortened)} caracteres)"
         )
 
     return shortened
+
+
+# ======================================================
+# 🧱 Builder message RDV
+# ======================================================
+def build_appointment_message(lead, sms_type="confirmation"):
+    date_str, time_str = get_french_datetime_strings_sms(lead.appointment_date)
+    display_name = get_lead_display_name(lead)
+
+    if sms_type == "confirmation":
+        status_line = "Votre RDV est confirme"
+    else:
+        status_line = "Rappel de votre RDV"
+
+    message = f"{COMPANY_NAME}\n"
+
+    if display_name:
+        message += f"{display_name}\n"
+
+    message += (
+        f"{status_line}\n"
+        f"Le {date_str}\n"
+        f"A {time_str}\n"
+        f"{COMPANY_ADDRESS_SHORT}"
+    )
+
+    return message
 
 
 # ======================================================
@@ -99,17 +138,7 @@ def send_appointment_confirmation_sms(lead):
     if not phone:
         return
 
-    date_str, time_str = get_french_datetime_strings_sms(lead.appointment_date)
-
-    message = (
-        f"RDV confirme\n"
-        f"{COMPANY_NAME}\n"
-        f"Le {date_str} a {time_str}\n"
-        f"{COMPANY_ADDRESS_SHORT}\n"
-        f"Tel: {COMPANY_PHONE}\n"
-        f"Merci de votre confiance"
-    )
-
+    message = build_appointment_message(lead, "confirmation")
     message = normalize_sms(message)
     message = validate_sms_length(message)
 
@@ -130,16 +159,7 @@ def send_appointment_reminder_sms(lead):
     if not phone:
         return
 
-    date_str, time_str = get_french_datetime_strings_sms(lead.appointment_date)
-
-    message = (
-        f"Rappel RDV\n"
-        f"{COMPANY_NAME}\n"
-        f"Le {date_str} a {time_str}\n"
-        f"{COMPANY_ADDRESS_SHORT}\n"
-        f"Tel: {COMPANY_PHONE}"
-    )
-
+    message = build_appointment_message(lead, "reminder")
     message = normalize_sms(message)
     message = validate_sms_length(message)
 
@@ -161,18 +181,21 @@ def send_appointment_sms_safe(lead, sms_type="confirmation"):
         return
 
     date_str, time_str = get_french_datetime_strings_sms(lead.appointment_date)
+    display_name = get_lead_display_name(lead)
+
+    name_part = f"{display_name}. " if display_name else ""
 
     if sms_type == "confirmation":
         message = (
+            f"{COMPANY_NAME} - {name_part}"
             f"RDV confirme le {date_str} {time_str}. "
-            f"{COMPANY_NAME}, {COMPANY_ADDRESS_SHORT}. "
-            f"Tel: {COMPANY_PHONE}."
+            f"{COMPANY_ADDRESS_SHORT}"
         )
     else:
         message = (
+            f"{COMPANY_NAME} - {name_part}"
             f"Rappel RDV le {date_str} {time_str}. "
-            f"{COMPANY_NAME}, {COMPANY_ADDRESS_SHORT}. "
-            f"Tel: {COMPANY_PHONE}."
+            f"{COMPANY_ADDRESS_SHORT}"
         )
 
     message = normalize_sms(message)

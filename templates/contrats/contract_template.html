@@ -1,432 +1,354 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Contrat de Prestation de Services - {{ company.name }}</title>
+<meta charset="UTF-8">
+<title>Contrat de Prestation de Services - {{ company.name }}</title>
 
-  <!-- Police professionnelle Inter -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+@page {
+  size: A4;
+  margin: 14mm 16mm;
+}
 
-  <style>
-    @page {
-      size: A4;
-      margin: 18mm 20mm;
-    }
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #1a1a1a;
+  line-height: 1.55;
+  font-size: 11pt;
+}
 
-    body {
-      font-family: 'Inter', sans-serif;
-      font-size: 12pt;
-      color: #1a1a1a;
-      background: #fff;
-      line-height: 1.75;
-    }
+.container {
+  width: 100%;
+}
 
-    .container {
-      width: 100%;
-      max-width: 210mm;
-      margin: 0 auto;
-    }
+/* HEADER */
+.header {
+  border-bottom: 1.5px solid #002395;
+  padding-bottom: 10px;
+  margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 
-    /* ----- HEADER ----- */
-    .header {
-      border-bottom: 2px solid #002395;
-      padding-bottom: 18px;
-      margin-bottom: 35px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+.logo {
+  height: 65px;
+  object-fit: contain;
+}
 
-    .logo {
-      height: 85px;
-      object-fit: contain;
-    }
+.contract-ref {
+  padding: 4px 10px;
+  border-radius: 3px;
+  font-weight: 600;
+  color: #002395;
+  font-size: 9pt;
+  margin-bottom: 4px;
+}
 
-    .contract-ref {
-      background: #e6e9f5;
-      padding: 6px 14px;
-      display: inline-block;
-      border-radius: 4px;
-      font-weight: 600;
-      color: #002395;
-      font-size: 10pt;
-      margin-bottom: 10px;
-    }
+h1 {
+  text-align: center;
+  font-size: 18pt;
+  font-weight: 700;
+  color: #002395;
+  margin: 18px 0 20px;
+}
 
-    h1 {
-      text-align: center;
-      font-size: 24pt;
-      font-weight: 700;
-      color: #002395;
-      margin: 30px 0 40px;
-      letter-spacing: 1px;
-    }
+/* PARTIES */
+.parties {
+  background: #fafafa;
+  border: 1px solid #d4d8e2;
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
 
-    /* ----- PARTIES ----- */
-    .parties {
-      background: #f7f9fc;
-      border: 1px solid #d4d8e2;
-      border-radius: 6px;
-      padding: 25px;
-      margin-bottom: 35px;
-      font-size: 12pt;
-    }
+.party-label {
+  font-weight: 700;
+  color: #002395;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  font-size: 11pt;
+}
 
-    .party-label {
-      font-weight: 700;
-      color: #002395;
-      margin-bottom: 8px;
-      display: block;
-      text-transform: uppercase;
-      font-size: 13pt;
-    }
+.party-info {
+  margin-left: 10px;
+  margin-bottom: 10px;
+}
 
-    .party-info {
-      margin-left: 18px;
-      margin-bottom: 20px;
-      line-height: 1.8;
-    }
+.separator {
+  text-align: center;
+  font-weight: 700;
+  margin: 6px 0;
+}
 
-    .separator {
-      text-align: center;
-      font-weight: 700;
-      margin: 20px 0;
-      font-size: 13pt;
-    }
+/* SECTIONS */
+.section {
+  margin-bottom: 18px;
+}
 
-    /* ----- SECTIONS ----- */
-    .section {
-      margin-bottom: 35px;
-    }
+.section-title {
+  font-size: 12pt;
+  font-weight: 700;
+  color: #002395;
+  background: #eef1fa;
+  padding: 5px 8px;
+  border-left: 4px solid #002395;
+  margin-bottom: 8px;
+}
 
-    .section-title {
-      font-size: 15pt;
-      font-weight: 700;
-      color: #002395;
-      background: #eef1fa;
-      padding: 8px 12px;
-      border-left: 5px solid #002395;
-      margin-bottom: 15px;
-      border-radius: 4px;
-      text-transform: uppercase;
-    }
+.section-text {
+  text-align: justify;
+  margin-bottom: 8px;
+}
 
-    .section-text {
-      text-align: justify;
-      margin-bottom: 14px;
-      font-size: 12pt;
-      line-height: 1.7;
-    }
+ul {
+  margin-left: 18px;
+  margin-bottom: 8px;
+}
 
-    ul {
-      margin-left: 25px;
-      margin-bottom: 12px;
-    }
+li {
+  margin-bottom: 4px;
+}
 
-    li {
-      margin-bottom: 8px;
-      font-size: 12pt;
-    }
+.highlight {
+  background: #fff6b2;
+  font-weight: 700;
+  padding: 1px 3px;
+}
 
-    .compact-list {
-      column-count: 2;
-      column-gap: 40px;
-      padding-left: 10px;
-      font-size: 12pt;
-    }
+/* SIGNATURES */
+.signatures {
+  margin-top: 25px;
+}
 
-    .highlight {
-      background: #fff6b2;
-      font-weight: 700;
-      padding: 2px 4px;
-      border-radius: 3px;
-    }
-
-    .important {
-      padding: 14px;
-      border-left: 4px solid #002395;
-      background: #f4f6fb;
-      margin-top: 15px;
-      border-radius: 4px;
-      font-size: 12pt;
-    }
-
-    /* ----- SIGNATURES + CACHET ----- */
 .signature-wrapper {
   position: relative;
-  width: 260px; /* même largeur que le trait */
-  height: 130px;
-  margin: 0 auto;
-  overflow: hidden; /* important */
+  height: 95px;
 }
+
 .signature-img {
-  position: relative;
-  height: 150px;
+  height: 100px;
   display: block;
   margin: 0 auto;
   z-index: 2;
 }
 
+.stamp-container {
+  position: absolute;
+  top: 0;
+  left: 30%;
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
 .stamp {
-  max-width: 230px;
-  height:auto;
-  display:block;
-  margin:0 auto;
+  max-height: 90px;
   opacity: 0.8;
 }
-.stamp-container {
-  position:absolute;
-  top: 8px;
-  left: calc(50% - 15px);
-  transform: translateX(-50%);
-  width:260px;
-  text-align:center;
-  z-index: 1;
-  opacity: 0.80;
+
+.signature-line {
+  border-bottom: 1px solid #000;
+  width: 220px;
+  margin: 10px auto 4px;
 }
 
-    table.signature-table {
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 50px 0;
-    }
+/* FOOTER */
+.footer {
+  text-align: center;
+  margin-top: 20px;
+  padding-top: 8px;
+  border-top: 1px solid #ccc;
+  font-size: 9pt;
+  color: #666;
+}
 
-    .footer {
-      text-align: center;
-      margin-top: 55px;
-      padding-top: 15px;
-      border-top: 1px solid #ccc;
-      font-size: 11pt;
-      color: #666;
-      line-height: 1.6;
-    }
-
-    @media print {
-      body { font-size: 11pt; }
-      .section { page-break-inside: avoid; }
-      .signatures { page-break-inside: avoid; }
-    }
-  </style>
+.section,
+.signatures {
+  page-break-inside: avoid;
+}
+</style>
 </head>
 
 <body>
+<div class="container">
 
-  <div class="container">
-
-    <!-- HEADER -->
-    <div class="header">
-      <img src="{{ company.logo_url }}" class="logo" alt="Logo PAPIERS EXPRESS">
-      <div style="text-align: right;">
-        <div class="contract-ref">Référence : {{ contract_ref }}</div>
-        <div>
-          Contrat effectif à compter du :<br>
-          <strong>{{ date }}</strong>
-        </div>
-      </div>
+<!-- HEADER -->
+<div class="header">
+  <img src="{{ company.logo_url }}" class="logo">
+  <div style="text-align:right;">
+    <div class="contract-ref">Référence : {{ contract_ref }}</div>
+    <div style="font-size:10pt">
+      Contrat effectif à compter du :<br>
+      <strong>{{ date }}</strong>
     </div>
+  </div>
+</div>
 
-    <h1>CONTRAT DE PRESTATION DE SERVICES</h1>
+<h1>CONTRAT DE PRESTATION DE SERVICES</h1>
 
-    <!-- PARTIES -->
-    <div class="parties">
-      <div class="party-label">ENTRE :</div>
-      <div class="party-info">
-        <strong>{{ company.name }}</strong><br>
-        {{ company.rcs }}<br>
-        Représentée par son Président,<br>
-        Ci-après désignée « <strong>La Société</strong> ».
-      </div>
+<!-- PARTIES -->
+<div class="parties">
+  <div class="party-label">ENTRE :</div>
+  <div class="party-info">
+    <strong>{{ company.name }}</strong><br>
+    {{ company.rcs }}<br>
+    Représentée par son Président,<br>
+    « La Société »
+  </div>
 
-      <div class="separator">ET</div>
+  <div class="separator">ET</div>
 
-      <div class="party-label">LE CLIENT :</div>
-      <div class="party-info">
-        Nom : <strong>{{ last_name }}</strong><br>
-        Prénom : <strong>{{ first_name }}</strong><br>
-        Téléphone : <strong>{{ phone }}</strong><br>
-        Email : <strong>{{ email }}</strong><br>
-        Ci-après désigné « <strong>Le Client</strong> ».
-      </div>
-    </div>
+  <div class="party-label">LE CLIENT :</div>
+  <div class="party-info">
+    Nom : <strong>{{ last_name }}</strong><br>
+    Prénom : <strong>{{ first_name }}</strong><br>
+    Téléphone : <strong>{{ phone }}</strong><br>
+    Email : <strong>{{ email }}</strong><br>
+    « Le Client »
+  </div>
+</div>
 
-    <!-- ARTICLE 1 -->
-    <div class="section">
-      <div class="section-title">1. Objet du Contrat et Modalités</div>
+<!-- ARTICLE 1 -->
+<div class="section">
+  <div class="section-title">1. Objet du Contrat et Modalités</div>
 
-      <p class="section-text">
-        La Société {{ company.name }} s'engage à fournir une assistance administrative
-        et un accompagnement personnalisé dans le cadre du service suivant :
-      </p>
-
-      <p class="section-text" style="margin-left: 10px;">
-        <span class="highlight"><strong>{{ service }}</strong></span>
-      </p>
-
-      <p class="section-text">
-        Dans le cadre de cette prestation, la Société réalisera les actions suivantes :
-      </p>
-
-      <ul>
-        <li><strong>Constitution complète du dossier</strong></li>
-        <li><strong>Mise en relation avec avocats partenaires</strong></li>
-        <li><strong>Suivi administratif</strong></li>
-        <li><strong>Actualisation du dossier</strong></li>
-      </ul>
-    </div>
-
-    <!-- ARTICLE 2 -->
-    <div class="section">
-      <div class="section-title">2. Rémunération</div>
-      <p class="section-text">
-        Le Client s'engage à régler à la Société la somme de
-        <span class="highlight">{{ montant }}</span>
-        pour la prestation suivante :
-        <span class="highlight">{{ service }}</span>.
-      </p>
-      <p class="section-text">
-        Si les services d’un avocat sont nécessaires, le Client autorise la Société à régler directement ses honoraires sur le montant payé, le reste constituant la rémunération de la Société.
-      </p>
-    </div>
-
-    <!-- ARTICLE 3 -->
-    <div class="section">
-      <div class="section-title">3. Obligations de la Société</div>
-      <ul>
-        <li>Fournir un service conforme aux normes professionnelles ;</li>
-        <li>Assurer un accompagnement personnalisé ;</li>
-        <li>Garantir la confidentialité des données fournies par le Client ;</li>
-        <li>Conserver les documents transmis le temps nécessaire à l’exécution de la mission.</li>
-      </ul>
-    </div>
-
-    <!-- ARTICLE 4 -->
-    <div class="section">
-      <div class="section-title">4. Obligations du Client</div>
-      <ul>
-        <li>Fournir des informations exactes et complètes ;</li>
-        <li>Transmettre les documents nécessaires au traitement de sa demande ;</li>
-        <li>Respecter les délais de paiement ;</li>
-        <li>Autoriser la Société à effectuer des démarches administratives en son nom.</li>
-      </ul>
-    </div>
-
-    <!-- ARTICLE 5 -->
-    <div class="section">
-      <div class="section-title">5. Durée du Contrat</div>
-      <p class="section-text">
-        Le présent contrat prend effet à la date indiquée et demeure valable jusqu’à la fin de la mission.
-      </p>
-    </div>
-
-    <!-- ARTICLE 6 -->
-    <div class="section">
-      <div class="section-title">6. Résiliation</div>
-      <p class="section-text">
-        En cas de manquement grave d’une partie, le contrat peut être résilié après une mise en demeure
-        restée sans effet pendant trente (30) jours.
-      </p>
-    </div>
-
-    <!-- ARTICLE 7 -->
-    <div class="section">
-      <div class="section-title">7. Confidentialité</div>
-      <p class="section-text">
-        Les parties s’engagent à préserver la confidentialité des informations échangées,
-        conformément à la législation en vigueur.
-      </p>
-    </div>
-
-    <!-- ARTICLE 8 -->
-    <div class="section">
-      <div class="section-title">8. Lois et Règlementation</div>
-      <p class="section-text">
-        Le présent contrat est soumis au droit français.
-        Si une clause est jugée invalide, les autres dispositions demeurent applicables.
-      </p>
-    </div>
-
-    <!-- ARTICLE 9 -->
-    <div class="section">
-      <div class="section-title">9. Litiges</div>
-      <p class="section-text">
-        Tout différend sera d’abord recherché à l’amiable avant de saisir les juridictions compétentes.
-      </p>
-    </div>
-
-    <!-- SIGNATURES -->
-<div class="signatures">
-  <p style="text-align:center; margin-bottom:25px;">
-    Fait en deux exemplaires originaux.
+  <p class="section-text">
+    La Société {{ company.name }} s'engage à fournir une assistance administrative
+    et un accompagnement personnalisé dans le cadre du service suivant :
   </p>
 
-  <table style="width: 100%; border-collapse: collapse;">
-    <tr>
+  <p class="section-text"><span class="highlight">{{ service }}</span></p>
 
-      <!-- COLONNE GAUCHE – SOCIÉTÉ -->
-      <td style="text-align:center; vertical-align:top; padding:10px;">
+  <p class="section-text">
+    Dans le cadre de cette prestation, la Société réalisera :
+  </p>
 
-        <div style="font-weight:700; font-size:14pt; color:#002395; text-decoration:underline; margin-bottom:25px;">
-          {{ company.name }}
-        </div>
+  <ul>
+    <li>Constitution complète du dossier</li>
+    <li>Mise en relation avec avocats partenaires</li>
+    <li>Suivi administratif</li>
+    <li>Actualisation du dossier</li>
+  </ul>
+</div>
 
-        <!-- Bloc signature Société -->
-      <div class="signature-wrapper">
-  <img src="{{ company.signature_url }}" alt="Signature" class="signature-img">
+<!-- ARTICLE 2 -->
+<div class="section">
+  <div class="section-title">2. Rémunération</div>
+  <p class="section-text">
+    Le Client s'engage à régler la somme de
+    <span class="highlight">{{ montant }}</span>
+    pour la prestation <span class="highlight">{{ service }}</span>.
+  </p>
+  <p class="section-text">
+    Si un avocat intervient, le Client autorise la Société à régler ses honoraires directement.
+  </p>
+</div>
 
-  <div class="stamp-container">
-    <img src="{{ company.stamp_url }}" alt="Cachet" class="stamp">
+<!-- ARTICLE 3 -->
+<div class="section">
+  <div class="section-title">3. Obligations de la Société</div>
+  <ul>
+    <li>Service conforme aux normes professionnelles</li>
+    <li>Accompagnement personnalisé</li>
+    <li>Confidentialité des données</li>
+    <li>Conservation des documents</li>
+  </ul>
+</div>
+
+<!-- ARTICLE 4 -->
+<div class="section">
+  <div class="section-title">4. Obligations du Client</div>
+  <ul>
+    <li>Informations exactes et complètes</li>
+    <li>Transmission des documents nécessaires</li>
+    <li>Respect des délais de paiement</li>
+    <li>Autorisation de démarches administratives</li>
+  </ul>
+</div>
+
+<!-- ARTICLE 5 -->
+<div class="section">
+  <div class="section-title">5. Durée du Contrat</div>
+  <p class="section-text">
+    Le contrat prend effet à la date indiquée et demeure valable jusqu’à la fin de la mission.
+  </p>
+</div>
+
+<!-- ARTICLE 6 -->
+<div class="section">
+  <div class="section-title">6. Résiliation</div>
+  <p class="section-text">
+    En cas de manquement grave, le contrat peut être résilié après mise en demeure restée sans effet 30 jours.
+  </p>
+</div>
+
+<!-- ARTICLE 7 -->
+<div class="section">
+  <div class="section-title">7. Confidentialité</div>
+  <p class="section-text">
+    Les parties s’engagent à préserver la confidentialité des informations échangées.
+  </p>
+</div>
+
+<!-- ARTICLE 8 -->
+<div class="section">
+  <div class="section-title">8. Lois et Règlementation</div>
+  <p class="section-text">
+    Le présent contrat est soumis au droit français.
+  </p>
+</div>
+
+<!-- ARTICLE 9 -->
+<div class="section">
+  <div class="section-title">9. Litiges</div>
+  <p class="section-text">
+    Tout différend sera recherché à l’amiable avant toute procédure judiciaire.
+  </p>
+</div>
+
+<!-- SIGNATURES -->
+<div class="signatures">
+<table style="width:100%;">
+<tr>
+
+<td style="text-align:center; vertical-align:top;">
+  <div style="font-weight:700; color:#002395; margin-bottom:10px;">
+    {{ company.name }}
   </div>
-</div>
 
-
-        <!-- TRAIT + LE PRESIDENT alignés -->
-        <div style="margin-top:15px;">
-          <div style="width:260px; border-bottom:1px solid #000; margin:0 auto 8px;"></div>
-          <div style="font-weight:700; font-size:12pt; margin-top:0;">
-            Le Président
-          </div>
-        </div>
-
-      </td>
-
-      <!-- COLONNE DROITE – CLIENT -->
-      <td style="text-align:center; vertical-align:top; padding:10px;">
-
-        <div style="font-weight:700; font-size:14pt; color:#002395; text-decoration:underline; margin-bottom:25px;">
-          Le Client
-        </div>
-
-        <div style="font-style:italic; color:#777; font-size:11pt; margin-bottom:5px;">
-          Lu et approuvé
-        </div>
-
-        <!-- **Même hauteur que signature Président** -->
-        <div style="height:96px;"></div>
-
-        <!-- TRAIT + NOM alignés -->
-        <div style="margin-top:15px;">
-          <div style="width:260px; border-bottom:1px solid #000; margin:0 auto 8px;"></div>
-          <div style="font-weight:700; font-size:12pt; margin-top:0;">
-            {{ first_name }} {{ last_name }}
-          </div>
-        </div>
-
-      </td>
-
-    </tr>
-  </table>
-</div>
-
-
-
-    <!-- FOOTER -->
-    <div class="footer">
-      {{ company.name }} – {{ company.rcs }}<br>
-      {{ company.address }} – {{ company.legal_form }}<br>
-      {{ company.contact_info }}
+  <div class="signature-wrapper">
+    <img src="{{ company.signature_url }}" class="signature-img">
+    <div class="stamp-container">
+      <img src="{{ company.stamp_url }}" class="stamp">
     </div>
-
   </div>
+
+  <div class="signature-line"></div>
+  <div style="font-weight:700;">Le Président</div>
+</td>
+
+<td style="text-align:center; vertical-align:top;">
+  <div style="font-weight:700; color:#002395; margin-bottom:10px;">
+    Le Client
+  </div>
+
+  <div style="height:95px;"></div>
+
+  <div class="signature-line"></div>
+  <div style="font-weight:700;">
+    {{ first_name }} {{ last_name }}
+  </div>
+</td>
+
+</tr>
+</table>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  {{ company.name }} – {{ company.rcs }} – {{ company.address }} – {{ company.contact_info }}
+</div>
+
+</div>
 </body>
 </html>
