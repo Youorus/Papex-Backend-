@@ -43,9 +43,24 @@ api_urlpatterns = [
 
     path("candidates/", include("api.candidate.urls")),
 
-    path("ping/", include("api.ping.urls"))
+    path("ping/", include("api.ping.urls")),
 
-    # Ajoute d'autres modules ici au besoin
+    path("lead-task-types/", include("api.leads_task_type.urls")),
+
+    # Lead Task Status
+    path("lead-task-status/", include("api.leads_task_status.urls")),
+
+    # Lead Tasks
+    path("lead-tasks/", include("api.leads_task.urls")),
+
+    # Lead Event Types
+    path("lead-event-types/", include("api.leads_event_type.urls")),
+
+    # Lead Events
+    path("lead-events/", include("api.leads_events.urls")),
+
+    path("v2/leads/", include("api.leads.urls_v2")),
+
 ]
 
 urlpatterns = [

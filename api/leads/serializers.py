@@ -10,7 +10,7 @@ from api.leads.constants import (
     RDV_CONFIRME,
     RDV_PLANIFIE,
     RDV_PRESENTIEL,
-    APPOINTMENT_TYPE_CHOICES,
+    APPOINTMENT_TYPE_CHOICES, LeadService,
 )
 from api.leads.models import Lead
 from api.services.models import Service
@@ -48,6 +48,11 @@ class LeadSerializer(serializers.ModelSerializer):
         default=RDV_PRESENTIEL,
     )
 
+    appointment_type_display = serializers.CharField(
+        source="get_appointment_type_display",
+        read_only=True,
+    )
+
     last_reminder_sent = serializers.DateTimeField(
         read_only=True,
         format="%d/%m/%Y %H:%M",
@@ -55,6 +60,7 @@ class LeadSerializer(serializers.ModelSerializer):
     )
 
     form_data = ClientSerializer(read_only=True)
+
     assigned_to = AssignedUserSerializer(read_only=True, many=True)
     jurist_assigned = AssignedUserSerializer(read_only=True, many=True)
 
@@ -62,22 +68,38 @@ class LeadSerializer(serializers.ModelSerializer):
     statut_dossier = StatutDossierSerializer(read_only=True)
     statut_dossier_interne = StatutDossierInterneSerializer(read_only=True)
 
+    status_display = serializers.CharField(
+        source="status.label",
+        read_only=True,
+    )
+
+    statut_dossier_display = serializers.CharField(
+        source="statut_dossier.label",
+        read_only=True,
+    )
+
+    statut_dossier_interne_display = serializers.CharField(
+        source="statut_dossier_interne.label",
+        read_only=True,
+    )
+
     # =====================
     # CHAMPS MÉTIER
     # =====================
 
-    service = serializers.PrimaryKeyRelatedField(
-        queryset=Service.objects.all(),
+    service = serializers.ChoiceField(
+        choices=LeadService.choices,
         required=False,
         allow_null=True,
     )
 
     service_display = serializers.CharField(
-        source="service.label",
+        source="get_service_display",
         read_only=True,
     )
 
     department_code = serializers.CharField(required=False, allow_blank=True)
+
     is_urgent = serializers.BooleanField(required=False)
 
     blocking_duration_bucket = serializers.CharField(
@@ -146,26 +168,39 @@ class LeadSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lead
+
         fields = [
             "id",
             "first_name",
             "last_name",
             "email",
             "phone",
+
             "appointment_type",
+            "appointment_type_display",
             "appointment_date",
+
             "last_reminder_sent",
             "created_at",
+
             "form_data",
+
             "status",
+            "status_display",
             "status_id",
+
             "assigned_to",
             "assigned_to_ids",
             "contract_emitter_id",
+
             "statut_dossier",
+            "statut_dossier_display",
             "statut_dossier_id",
+
             "statut_dossier_interne",
+            "statut_dossier_interne_display",
             "statut_dossier_interne_id",
+
             "jurist_assigned",
             "jurist_assigned_ids",
 
@@ -174,8 +209,10 @@ class LeadSerializer(serializers.ModelSerializer):
             "service_display",
             "department_code",
             "is_urgent",
+
             "blocking_duration_bucket",
             "blocking_duration_display",
+
             "source",
             "source_display",
         ]
@@ -190,15 +227,20 @@ class LeadSerializer(serializers.ModelSerializer):
     # =====================
 
     def get_contract_emitter_id(self, obj):
+
         client = getattr(obj, "form_data", None)
+
         if not client:
             return None
 
         contract_qs = getattr(client, "contracts", None)
+
         if contract_qs:
             contract = contract_qs.order_by("-created_at").first()
+
             if contract and contract.created_by:
                 return str(contract.created_by.id)
+
         return None
 
     # =====================
@@ -206,12 +248,14 @@ class LeadSerializer(serializers.ModelSerializer):
     # =====================
 
     def validate_email(self, value):
+
         if not value:
             return None
 
         email = value.lower().strip()
 
         qs = Lead.objects.filter(email__iexact=email)
+
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
 
@@ -223,12 +267,14 @@ class LeadSerializer(serializers.ModelSerializer):
         return email
 
     def validate_phone(self, value):
+
         if not value:
             return value
 
         phone = value.strip()
 
         qs = Lead.objects.filter(phone=phone)
+
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
 
@@ -247,7 +293,9 @@ class LeadSerializer(serializers.ModelSerializer):
         return value.capitalize()
 
     def validate(self, data):
+
         status = data.get("status") or getattr(self.instance, "status", None)
+
         appointment_date = data.get("appointment_date") or getattr(
             self.instance, "appointment_date", None
         )
@@ -264,6 +312,7 @@ class LeadSerializer(serializers.ModelSerializer):
     # =====================
 
     def to_representation(self, instance):
+
         rep = super().to_representation(instance)
 
         if instance.appointment_date:
@@ -277,13 +326,5 @@ class LeadSerializer(serializers.ModelSerializer):
             )
         else:
             rep["last_reminder_sent"] = None
-
-        rep["status_display"] = instance.status.label if instance.status else None
-
-        rep["appointment_type_display"] = (
-            instance.get_appointment_type_display()
-            if hasattr(instance, "get_appointment_type_display")
-            else None
-        )
 
         return rep

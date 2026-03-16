@@ -74,6 +74,7 @@ LOCAL_APPS = [
     "api.user_unavailability",
     "api.job",
     "api.candidate",
+
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

@@ -40,20 +40,36 @@ class ContractViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def perform_create(self, serializer):
-        """
-        Méthode appelée à la création d'un contrat.
-        La création échoue si le PDF n'est pas généré.
-        """
+
         contract = serializer.save(created_by=self.request.user)
 
         pdf_url = contract.generate_contract_pdf()
         if not pdf_url:
-            # rollback automatique (pas de contrat créé)
             raise APIException("Impossible de générer le PDF du contrat.")
 
-        # Si OK → on met à jour l'URL
         contract.contract_url = pdf_url
         contract.save(update_fields=["contract_url"])
+
+        # --------------------------------------------------
+        # Log LeadEvent CONTRACT_SIGNED → déclenche l'automation
+        # Le lead est récupéré via client.lead
+        # --------------------------------------------------
+        try:
+            from api.leads_events.models import LeadEvent
+
+            lead = contract.client.lead
+            LeadEvent.log(
+                lead=lead,
+                event_code="CONTRACT_SIGNED",
+                actor=self.request.user,
+                data={"contract_id": contract.id},
+            )
+        except Exception as e:
+            # On ne bloque pas la création du contrat si le log échoue
+            import logging
+            logging.getLogger(__name__).error(
+                "[ContractViewSet] Erreur log CONTRACT_SIGNED : %s", e
+            )
 
     @action(detail=True, methods=["get"], url_path="receipts")
     def receipts(self, request, pk=None):

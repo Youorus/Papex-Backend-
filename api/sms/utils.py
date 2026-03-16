@@ -1,27 +1,134 @@
-# api/utils/email/utils.py
+# api/sms/utils.py
 
-from datetime import datetime
-from dateutil import tz
+import re
+import unicodedata
+
+from api.sms.constants import (
+    COMPANY_NAME,
+    COMPANY_ADDRESS_SHORT,
+    SMS_MAX_LENGTH,
+    SERVICE_SMS_LABELS,
+    SERVICE_SMS_FALLBACK,
+)
 
 
-def get_french_datetime_strings_sms(dt: datetime):
+# ======================================================
+# 📞 Normalisation téléphone (OBLIGATOIRE OVH)
+# ======================================================
+
+def normalize_phone(phone: str) -> str:
     """
-    Retourne une date et une heure SMS-friendly en français.
-
-    Exemples:
-    - date_str: "19/02/2024"  (format dd/mm/YYYY)
-    - time_str: "16h30"
+    Normalise un numéro de téléphone au format E.164 FR.
+    Accepte : 06..., 07..., +336..., +337..., 336..., 337...
+    Rejette tout numéro non mobile français.
+    Retourne "" si invalide.
     """
+    if not phone:
+        return ""
 
-    if not isinstance(dt, datetime):
-        raise ValueError("dt must be a datetime")
+    phone = phone.strip()
+    phone = re.sub(r"[^\d+]", "", phone)
 
-    # Timezone France
-    france_tz = tz.gettz("Europe/Paris")
-    dt = dt.astimezone(france_tz)
+    if phone.startswith("0"):
+        phone = "+33" + phone[1:]
+    elif phone.startswith("33") and not phone.startswith("+"):
+        phone = "+" + phone
 
-    # Format date: dd/mm/YYYY
-    date_str = f"{dt:%d/%m/%Y}"  # 19/02/2024
-    time_str = f"{dt:%H}h{dt:%M}"  # 16h30
+    if not re.match(r"^\+33[67]\d{8}$", phone):
+        return ""
 
-    return date_str, time_str
+    return phone
+
+
+# ======================================================
+# 👤 Nom affiché du lead (prénom prioritaire)
+# ======================================================
+
+def get_lead_display_name(lead) -> str:
+    """
+    Retourne le prénom si disponible, sinon le nom.
+    Retourne "" si aucun des deux n'est renseigné.
+    """
+    first = (lead.first_name or "").strip()
+    last  = (lead.last_name  or "").strip()
+    return first or last or ""
+
+
+# ======================================================
+# 🏷️ Label SMS du service du lead
+# ======================================================
+
+def get_service_sms_label(lead) -> str:
+    """
+    Retourne le libellé SMS normalisé ASCII du service du lead.
+    lead.service est un CharField avec choices LeadService (code direct).
+
+    Priorité :
+      1. SERVICE_SMS_LABELS[lead.service]
+      2. SERVICE_SMS_FALLBACK ("votre dossier")
+    """
+    code = lead.service if lead.service else None
+    if not code:
+        return SERVICE_SMS_FALLBACK
+    return SERVICE_SMS_LABELS.get(code, SERVICE_SMS_FALLBACK)
+
+
+# ======================================================
+# ✍️ Normalisation texte GSM 7-bit
+# ======================================================
+
+def normalize_sms(text: str) -> str:
+    """
+    Remplace les caractères non-GSM 7-bit par leurs équivalents ASCII.
+    Nécessaire pour garantir le comptage à 160 chars / crédit OVH.
+    """
+    text = unicodedata.normalize("NFKD", text)
+
+    replacements = {
+        "é": "e", "è": "e", "ê": "e", "ë": "e",
+        "à": "a", "â": "a", "ä": "a",
+        "î": "i", "ï": "i",
+        "ô": "o", "ö": "o",
+        "ù": "u", "û": "u", "ü": "u",
+        "ç": "c",
+        "É": "E", "È": "E", "Ê": "E", "Ë": "E",
+        "À": "A", "Â": "A", "Ä": "A",
+        "Î": "I", "Ï": "I",
+        "Ô": "O", "Ö": "O",
+        "Ù": "U", "Û": "U", "Ü": "U",
+        "Ç": "C",
+        "«": '"', "»": '"', "€": "EUR",
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    return text.encode("ascii", "ignore").decode("ascii")
+
+
+# ======================================================
+# 📏 Validation longueur SMS (1 crédit = 160 chars)
+# ======================================================
+
+def validate_sms_length(message: str) -> str:
+    """
+    Vérifie que le message ne dépasse pas SMS_MAX_LENGTH (160).
+    Si trop long, tente deux raccourcissements successifs :
+      1. Remplace l'adresse complète par "Paris 17"
+      2. Remplace le nom de la société par "Papiers Exp"
+    Lève ValueError si toujours trop long après optimisation.
+    """
+    if len(message) <= SMS_MAX_LENGTH:
+        return message
+
+    shortened = message.replace(COMPANY_ADDRESS_SHORT, "Paris 17")
+
+    if len(shortened) > SMS_MAX_LENGTH:
+        shortened = shortened.replace(COMPANY_NAME, "Papiers Exp")
+
+    if len(shortened) > SMS_MAX_LENGTH:
+        raise ValueError(
+            f"SMS trop long apres optimisation ({len(shortened)} caracteres)"
+        )
+
+    return shortened

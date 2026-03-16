@@ -19,6 +19,8 @@ RDV_A_CONFIRMER = "RDV_A_CONFIRMER"
 RDV_CONFIRME = "RDV_CONFIRME"
 RDV_PLANIFIE = "RDV_PLANIFIE"  # legacy / optionnel
 A_RAPPELER = "A_RAPPELER"
+NEW_FACEBOOK_LEAD = "NEW_FACEBOOK_LEAD"
+
 ABSENT = "ABSENT"
 PRESENT = "PRESENT"
 
@@ -123,6 +125,21 @@ class LeadSource(models.TextChoices):
     # ❓ Autre
     OTHER = "OTHER", _("Autre")
 
+
+
+class LeadService(models.TextChoices):
+    TITRE_SEJOUR          = "TITRE_SEJOUR",          "Obtention de titre de séjour"
+    REGROUPEMENT_FAM      = "REGROUPEMENT_FAM",       "Regroupement familial"
+    NATURALISATION        = "NATURALISATION",         "Naturalisation"
+    VISA                  = "VISA",                   "Demande de visa"
+    SUIVI_PREFECTURE      = "SUIVI_PREFECTURE",       "Suivi de dossier en préfecture"
+    DUPLICATA_SEJOUR      = "DUPLICATA_SEJOUR",       "Duplicata de titre de séjour"
+    DCEM                  = "DCEM",                   "DCEM (Document de Circulation Enfant Mineur)"
+    CREATION_ENTREPRISE   = "CREATION_ENTREPRISE",    "Création d'entreprise"
+    ASSISTANCE_JURIDIQUE  = "ASSISTANCE_JURIDIQUE",   "Assistance juridique"
+    OQTF                  = "OQTF",                   "Contestation OQTF"
+    INSCRIPTION_UNIV      = "INSCRIPTION_UNIV",       "Inscription universitaire"
+    CASIER                = "CASIER",                 "Effacement du casier judiciaire"
 
 class BlockingDurationBucket(models.TextChoices):
     LESS_THAN_1_MONTH = "LESS_THAN_1_MONTH", _("Moins d’1 mois")

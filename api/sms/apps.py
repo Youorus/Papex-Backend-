@@ -7,4 +7,4 @@ class SmsConfig(AppConfig):
 
     def ready(self):
         # 🔥 FORCE l'import des tasks SMS au démarrage
-        import api.sms.tasks
+        pass

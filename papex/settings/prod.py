@@ -89,6 +89,11 @@ LOCAL_APPS = [
     "api.core",
     "api.phone",
     "api.candidate",
+    "api.leads_event_type",
+    "api.leads_events",
+    "api.leads_task_type",
+    "api.leads_task_status",
+    "api.leads_task",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -349,27 +354,30 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
 
 CELERY_TASK_ROUTES = {
     # Emails
-    "api.utils.email.*": {"queue": "emails"},
-    "api.utils.email.**": {"queue": "emails"},
+    "api.utils.email.*":  {"queue": "emails"},
 
-    # SMS
-    "api.sms.*": {"queue": "sms"},
-    "api.sms.**": {"queue": "sms"},
+    # SMS — chemin exact du module
+    "api.sms.tasks.*":    {"queue": "sms"},
 
-    # Rappels & statuts
-    "api.leads.tasks.send_appointment_reminders": {"queue": "scheduler"},
-    "api.leads.tasks.mark_absent_leads": {"queue": "scheduler"},
+    # Scheduler — rappels RDV + marquage absent + relances
+    "api.leads.tasks.appointments.process_appointment_reminders": {"queue": "scheduler"},
+    "api.leads.tasks.appointments.mark_absent_leads":             {"queue": "scheduler"},
+    "api.leads_task.tasks.create_absent_followup_task":           {"queue": "scheduler"},
 }
 
 CELERY_BEAT_SCHEDULE = {
-    "send-lead-reminders": {
-        "task": "api.leads.tasks.send_appointment_reminders",
-        "schedule": crontab(hour=7, minute=0),
+
+    # Rappels RDV 48h et 24h — doit tourner toutes les 30 min
+    # pour ne pas rater les fenêtres de détection (23h≤delta≤25h)
+    "process-appointment-reminders": {
+        "task":    "api.leads.tasks.appointments.process_appointment_reminders",
+        "schedule": crontab(minute="*/30"),
         "options": {"queue": "scheduler"},
     },
 
+    # Marquage absent si RDV passé sans présence
     "mark-leads-absent": {
-        "task": "api.leads.tasks.mark_absent_leads",
+        "task":    "api.leads.tasks.appointments.mark_absent_leads",
         "schedule": crontab(minute="*/30"),
         "options": {"queue": "scheduler"},
     },

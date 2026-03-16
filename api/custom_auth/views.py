@@ -26,34 +26,58 @@ COOKIE_PARAMS = {
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         from api.custom_auth.serializers import LoginSerializer
-        serializer = LoginSerializer(data=request.data, context={"request": request})
+
+        serializer = LoginSerializer(
+            data=request.data,
+            context={"request": request}
+        )
 
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         user = serializer.validated_data["user"]
         tokens = serializer.validated_data["tokens"]
+
         update_last_login(None, user)
 
         response = Response({
             "detail": "Success",
             "role": user.role,
-        }, status=status.HTTP_200_OK)
+        })
 
-        # 1. JWT Cookies (HttpOnly)
-        response.set_cookie('access_token', tokens["access"], max_age=settings.ACCESS_MAX_AGE, **COOKIE_PARAMS)
-        response.set_cookie('refresh_token', tokens["refresh"], max_age=settings.REFRESH_MAX_AGE, **COOKIE_PARAMS)
+        response.set_cookie(
+            "access_token",
+            tokens["access"],
+            max_age=settings.ACCESS_MAX_AGE,
+            **COOKIE_PARAMS
+        )
 
-        # 2. CSRF Token (Lisible par le JS pour l'intercepteur Axios)
-        response.set_cookie('csrftoken', get_token(request), httponly=False, samesite=COOKIE_PARAMS['samesite'],
-                            secure=COOKIE_PARAMS['secure'])
+        response.set_cookie(
+            "refresh_token",
+            tokens["refresh"],
+            max_age=settings.REFRESH_MAX_AGE,
+            **COOKIE_PARAMS
+        )
 
-        # 3. Role Cookie (Pour le Middleware Next.js)
-        response.set_cookie('user_role', user.role, httponly=False, samesite=COOKIE_PARAMS['samesite'],
-                            secure=COOKIE_PARAMS['secure'])
+        response.set_cookie(
+            "csrftoken",
+            get_token(request),
+            httponly=False,
+            samesite=COOKIE_PARAMS["samesite"],
+            secure=COOKIE_PARAMS["secure"]
+        )
+
+        response.set_cookie(
+            "user_role",
+            user.role,
+            httponly=False,
+            samesite=COOKIE_PARAMS["samesite"],
+            secure=COOKIE_PARAMS["secure"]
+        )
 
         return response
 

@@ -1,12 +1,10 @@
-from datetime import date
-
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from api.leads.constants import RDV_A_CONFIRMER, RDV_CONFIRME
 from api.leads.models import Lead
 from api.utils.email.leads.tasks import send_appointment_confirmation_task
-from api.sms.tasks import send_appointment_confirmation_sms_task
+from api.sms.notifications.leads import send_appointment_confirmation_sms_task
 
 
 class Command(BaseCommand):

@@ -6,14 +6,12 @@ from django.core.exceptions import ValidationError
 from api.leads.constants import (
     RDV_PRESENTIEL,
     APPOINTMENT_TYPE_CHOICES,
-    RDV_CONFIRME,
     RDV_PLANIFIE,
     LeadSource,
-    BlockingDurationBucket,
+    BlockingDurationBucket, LeadService,
 )
 
 from api.lead_status.models import LeadStatus
-from api.services.models import Service
 
 
 class Lead(models.Model):
@@ -57,15 +55,13 @@ class Lead(models.Model):
     )
 
     # 🧭 Qualification lead
-    service = models.ForeignKey(
-        Service,
-        on_delete=models.PROTECT,
-        null=True,
+    service = models.CharField(
+        max_length=30,
+        choices=LeadService.choices,
         blank=True,
-        related_name="leads",
+        null=True,
         verbose_name=_("service demandé"),
     )
-
     department_code = models.CharField(
         max_length=10,
         blank=True,
@@ -170,3 +166,6 @@ class Lead(models.Model):
             return True
 
         return False
+
+    def get_service_display(self):
+        return dict(LeadService.choices).get(self.service)
