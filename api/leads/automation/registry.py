@@ -7,5 +7,5 @@ from .handlers.contract_signed import handle_contract_signed
 AUTOMATION_REGISTRY = {
     "LEAD_CREATED":     [handle_lead_created],
     "STATUS_CHANGED":   [handle_status_changed],
-    "CONTRACT_SIGNED":  [handle_contract_signed],
+    "CONTRACT_SIGNED": [handle_contract_signed],
 }

@@ -9,7 +9,7 @@ from api.sms.tasks import send_contract_signed_sms_task
 
 logger = logging.getLogger(__name__)
 
-POST_CONTRACT_DELAY = 60 * 60 * 2  # 2h
+POST_CONTRACT_DELAY = 10
 
 
 def handle_contract_signed(event):

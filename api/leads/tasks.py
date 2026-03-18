@@ -19,6 +19,7 @@ from api.leads.models import Lead
 from api.leads.constants import RDV_CONFIRME, ABSENT, RDV_A_CONFIRMER
 from api.lead_status.models import LeadStatus
 from api.leads_events.models import LeadEvent
+from api.sms.notifications.leads import send_confirm_presence_sms
 
 from api.sms.tasks import send_appointment_reminder_sms_task
 
