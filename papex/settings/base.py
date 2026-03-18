@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 from datetime import timedelta
-
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,14 +20,14 @@ DEBUG = ENV != "production"
 
 DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
 
-# JWT cookies
+# JWT cookies lifecycle
 ACCESS_MAX_AGE = int(os.getenv("ACCESS_TOKEN_LIFETIME_SECONDS", "900"))
 REFRESH_MAX_AGE = int(os.getenv("REFRESH_TOKEN_LIFETIME_SECONDS", "604800"))
 
 ALLOWED_HOSTS = []
 
 # -------------------------------------------------------------------
-# APPS
+# APPS (Ordre optimisé : Django -> Third Party -> Local)
 # -------------------------------------------------------------------
 DJANGO_APPS = [
     "django.contrib.auth",
@@ -44,10 +43,10 @@ THIRD_PARTY_APPS = [
     "channels",
     "django_celery_beat",
     "django_extensions",
-    "background_task",
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    "django_filters",
 ]
 
 LOCAL_APPS = [
@@ -74,7 +73,9 @@ LOCAL_APPS = [
     "api.user_unavailability",
     "api.job",
     "api.candidate",
-
+    "api.sms",
+    "api.leads_events",
+    "api.leads_task",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -119,7 +120,7 @@ TEMPLATES = [
 ]
 
 # -------------------------------------------------------------------
-# AUTH
+# AUTHENTICATION
 # -------------------------------------------------------------------
 AUTH_USER_MODEL = "users.user"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -132,7 +133,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # -------------------------------------------------------------------
-# I18N
+# INTERNATIONALIZATION (I18N / L10N)
 # -------------------------------------------------------------------
 LANGUAGE_CODE = "fr-fr"
 TIME_ZONE = "Europe/Paris"
@@ -140,7 +141,7 @@ USE_I18N = True
 USE_TZ = True
 
 # -------------------------------------------------------------------
-# REST + JWT
+# REST FRAMEWORK + JWT
 # -------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -185,10 +186,9 @@ CACHES = {
 }
 
 # -------------------------------------------------------------------
-# 📧 EMAIL (SMTP)  ✅ OBLIGATOIRE
+# 📧 EMAIL (SMTP)
 # -------------------------------------------------------------------
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("true", "1")
@@ -203,24 +203,21 @@ DEFAULT_FROM_EMAIL = os.getenv(
 )
 
 # -------------------------------------------------------------------
-# FRONTEND
+# FRONTEND / SMS / EXTERNAL
 # -------------------------------------------------------------------
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
-# -------------------------------------------------------------------
-# 📩 OVH SMS
-# -------------------------------------------------------------------
+# OVH SMS
 APP_KEY = os.getenv("APP_KEY")
 APP_SECRET = os.getenv("APP_SECRET")
 CONSUMER_KEY = os.getenv("CONSUMER_KEY")
-
 SERVICE_SMS = os.getenv("SERVICE_SMS")
 SENDER = os.getenv("SENDER", "PAPEX")
 
 WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH")
 
 # -------------------------------------------------------------------
-# SECURITY HEADERS
+# SECURITY HEADERS (Common)
 # -------------------------------------------------------------------
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER = True

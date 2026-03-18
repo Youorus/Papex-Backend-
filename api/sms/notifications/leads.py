@@ -2,13 +2,15 @@
 
 import logging
 
+from api.sms.sender import send_sms as ovh_send_sms
 from api.sms.templates.leads import (
     tpl_appointment_confirmation,
     tpl_appointment_reminder,
     tpl_absent_urgency,
     tpl_absent_followup,
     tpl_present_no_contract,
-    tpl_contract_signed, tpl_confirm_presence,
+    tpl_contract_signed,
+    tpl_confirm_presence,
 )
 
 logger = logging.getLogger(__name__)
@@ -20,30 +22,24 @@ logger = logging.getLogger(__name__)
 
 def _send_sms(phone: str, message: str) -> None:
     """
-    Point d'envoi unique des SMS.
-
-    C'est ici que tu branches ton provider :
-        - Twilio
-        - OVH
-        - MessageBird
-        - Orange SMS
-        - autre
-
-    Pour l'instant on log seulement le SMS.
+    Point d'envoi unique des SMS via le provider OVH.
     """
 
     if not phone:
         logger.warning("[sms] téléphone manquant — SMS ignoré")
         return
 
-    # Exemple futur :
-    # sms_provider.send(to=phone, body=message)
+    try:
+        # Appel de ton utilitaire api/utils/sms/sender.py
+        ovh_send_sms(
+            message=message,
+            receivers=[phone]
+        )
+        logger.info("[sms] envoi réussi → %s", phone)
 
-    logger.info(
-        "[sms] envoi → %s\n%s",
-        phone,
-        message,
-    )
+    except Exception as e:
+        # On log l'erreur mais on ne bloque pas le reste du processus
+        logger.error("[sms] Échec critique de l'envoi à %s : %s", phone, str(e))
 
 
 # ============================================================
@@ -149,6 +145,7 @@ def send_contract_signed_sms(lead) -> None:
         phone=lead.phone,
         message=message,
     )
+
 
 # ============================================================
 # 7. DEMANDE CONFIRMATION PRESENCE

@@ -10,6 +10,7 @@ from rest_framework.routers import DefaultRouter
 
 from .lead_filter import LeadFilterView
 from .lead_search_v2 import LeadSearchViewV2
+from .lead_stats_todayview import LeadStatsTodayView
 from .views_v2 import LeadViewSetV2
 
 
@@ -19,6 +20,7 @@ router.register(r"", LeadViewSetV2, basename="lead-v2")
 
 urlpatterns = [
     path("search/v2/", LeadSearchViewV2.as_view(), name="lead-search-v2"),
+    path("stats-today/", LeadStatsTodayView.as_view(), name="lead-stats-today"),
     path("filter/", LeadFilterView.as_view(), name="lead-filter"),
 ]
 

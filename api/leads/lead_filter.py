@@ -1,44 +1,10 @@
-"""
-api/leads/lead_filter.py
-
-Endpoint de filtrage avancé des leads.
-
-URL : GET /api/v2/leads/filter/
-
-Paramètres :
-    ?created_from=      YYYY-MM-DD
-    ?created_to=        YYYY-MM-DD
-    ?appointment_from=  YYYY-MM-DD
-    ?appointment_to=    YYYY-MM-DD
-    ?appointment_type=  RDV_PRESENTIEL | VISIO | TELEPHONE
-    ?status=            id (multiple : ?status=1&status=2)
-    ?has_tasks=         true | false
-    ?task_due_from=     YYYY-MM-DD  (leads ayant une tâche dans cette période)
-    ?task_due_to=       YYYY-MM-DD
-    ?page=              numéro de page
-
-Retourne :
-    {
-        count, next, previous, results: [...],
-        aggregates: {
-            by_status: [{ id, label, color, count }],
-            by_appointment_type: [{ type, count }],
-            total_with_tasks: int,
-            total_overdue_tasks: int,
-        }
-    }
-"""
-
-from datetime import date
 from rest_framework import generics, permissions
-from rest_framework.response import Response
-from django.db.models import Q, Count, Prefetch
+from django.db.models import Q, Count
 from django.utils import timezone
 
 from api.core.pagination import CRMLeadPagination
 from api.leads.models import Lead
 from api.leads.serializers import LeadSerializer
-from api.lead_status.models import LeadStatus
 
 
 class LeadFilterView(generics.ListAPIView):
@@ -48,82 +14,114 @@ class LeadFilterView(generics.ListAPIView):
     pagination_class = CRMLeadPagination
 
     def get_queryset(self):
+
         p = self.request.query_params
 
         qs = (
             Lead.objects
-            .select_related("status", "service", "statut_dossier", "statut_dossier_interne")
-            .prefetch_related("assigned_to", "jurist_assigned")
+            .select_related(
+                "status",
+                "statut_dossier",
+                "statut_dossier_interne",
+            )
+            .prefetch_related(
+                "assigned_to",
+                "jurist_assigned",
+            )
         )
 
-        # ── Date de création ────────────────────────────────────────────────
+        # ── Date création
         created_from = p.get("created_from")
-        created_to   = p.get("created_to")
+        created_to = p.get("created_to")
+
         if created_from:
             qs = qs.filter(created_at__date__gte=created_from)
+
         if created_to:
             qs = qs.filter(created_at__date__lte=created_to)
 
-        # ── Date de rendez-vous ─────────────────────────────────────────────
+        # ── Date rendez-vous
         appt_from = p.get("appointment_from")
-        appt_to   = p.get("appointment_to")
+        appt_to = p.get("appointment_to")
+
         if appt_from:
             qs = qs.filter(appointment_date__date__gte=appt_from)
+
         if appt_to:
             qs = qs.filter(appointment_date__date__lte=appt_to)
 
-        # ── Type de rendez-vous ─────────────────────────────────────────────
+        # ── Type RDV
         appt_type = p.get("appointment_type")
         if appt_type:
             qs = qs.filter(appointment_type=appt_type)
 
-        # ── Statuts (multiple) ──────────────────────────────────────────────
+        # ── Statut lead
         status_ids = p.getlist("status")
         if status_ids:
             qs = qs.filter(status_id__in=status_ids)
 
-        # ── Tâches liées ────────────────────────────────────────────────────
+        # ── Statut dossier
+        dossier_status = p.get("dossier_status")
+        if dossier_status:
+            qs = qs.filter(statut_dossier_id=dossier_status)
+
+        # ── Juriste
+        jurist_id = p.get("jurist_id")
+        if jurist_id:
+            qs = qs.filter(jurist_assigned__id=jurist_id)
+
+        # ── Conseiller
+        advisor_id = p.get("advisor_id")
+        if advisor_id:
+            qs = qs.filter(assigned_to__id=advisor_id)
+
+        # ── Tâches
         has_tasks = p.get("has_tasks")
+
         if has_tasks == "true":
             qs = qs.filter(tasks__isnull=False).distinct()
+
         elif has_tasks == "false":
             qs = qs.filter(tasks__isnull=True)
 
         task_due_from = p.get("task_due_from")
-        task_due_to   = p.get("task_due_to")
+        task_due_to = p.get("task_due_to")
+
         if task_due_from or task_due_to:
+
             task_q = Q()
+
             if task_due_from:
                 task_q &= Q(tasks__due_at__date__gte=task_due_from)
+
             if task_due_to:
                 task_q &= Q(tasks__due_at__date__lte=task_due_to)
+
             qs = qs.filter(task_q).distinct()
 
         return qs.order_by("-created_at")
 
     def list(self, request, *args, **kwargs):
-        """
-        Override list() pour injecter les agrégats dans la réponse paginée.
-        """
+
         qs = self.get_queryset()
 
-        # ── Pagination ──────────────────────────────────────────────────────
         page = self.paginate_queryset(qs)
+
         serializer = self.get_serializer(page, many=True)
+
         response = self.get_paginated_response(serializer.data)
 
-        # ── Agrégats sur le queryset NON paginé ─────────────────────────────
-        # (compter les totaux sur TOUS les résultats filtrés, pas juste la page)
+        # ── Aggregates
 
-        # Par statut
         by_status_raw = (
             qs.values("status__id", "status__label", "status__color")
             .annotate(count=Count("id"))
             .order_by("-count")
         )
+
         by_status = [
             {
-                "id":    row["status__id"],
+                "id": row["status__id"],
                 "label": row["status__label"] or "—",
                 "color": row["status__color"] or "#888",
                 "count": row["count"],
@@ -131,7 +129,6 @@ class LeadFilterView(generics.ListAPIView):
             for row in by_status_raw
         ]
 
-        # Par type de RDV
         by_appt_raw = (
             qs.exclude(appointment_type__isnull=True)
             .exclude(appointment_type="")
@@ -139,16 +136,19 @@ class LeadFilterView(generics.ListAPIView):
             .annotate(count=Count("id"))
             .order_by("-count")
         )
+
         by_appointment_type = [
-            {"type": row["appointment_type"], "count": row["count"]}
+            {
+                "type": row["appointment_type"],
+                "count": row["count"],
+            }
             for row in by_appt_raw
         ]
 
-        # Total avec tâches
         total_with_tasks = qs.filter(tasks__isnull=False).distinct().count()
 
-        # Total tâches en retard
         now = timezone.now()
+
         total_overdue_tasks = qs.filter(
             tasks__due_at__lt=now,
             tasks__completed_at__isnull=True,

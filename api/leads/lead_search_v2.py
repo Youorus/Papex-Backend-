@@ -33,7 +33,6 @@ class LeadSearchViewV2(generics.ListAPIView):
             Lead.objects
             .select_related(
                 "status",
-                "service",
                 "statut_dossier",
                 "statut_dossier_interne",
             )
