@@ -1,5 +1,3 @@
-# api/contracts/serializer.py
-
 from decimal import ROUND_HALF_UP, Decimal
 from urllib.parse import unquote, urlparse
 
@@ -12,17 +10,20 @@ from api.utils.cloud.scw.bucket_utils import generate_presigned_url
 
 
 class ContractSerializer(serializers.ModelSerializer):
+    # 🔥 computed fields (SAFE)
     amount_paid = serializers.SerializerMethodField()
     real_amount_due = serializers.SerializerMethodField()
     is_fully_paid = serializers.SerializerMethodField()
     balance_due = serializers.SerializerMethodField()
     net_paid = serializers.SerializerMethodField()
 
+    # 🔗 relations
     client_details = ClientSerializer(source="client", read_only=True)
     service_details = ServiceSerializer(source="service", read_only=True)
 
+    # 🔗 urls signées
     contract_url = serializers.SerializerMethodField()
-    invoice_url = serializers.SerializerMethodField()  # ✅ AJOUTÉ
+    invoice_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Contract
@@ -67,26 +68,48 @@ class ContractSerializer(serializers.ModelSerializer):
         ]
 
     # ==========================================================
-    # 🔵 METHODS ASSOCIATED WITH SerializerMethodField
+    # 🔵 COMPUTED FIELDS SAFE (ANNOTATION + FALLBACK)
     # ==========================================================
 
     def get_amount_paid(self, obj):
-        return float(obj.amount_paid)
+        return float(
+            getattr(obj, "amount_paid_annotated", None)
+            if getattr(obj, "amount_paid_annotated", None) is not None
+            else (obj.amount_paid or 0)
+        )
+
+    def get_net_paid(self, obj):
+        return float(
+            getattr(obj, "net_paid_annotated", None)
+            if getattr(obj, "net_paid_annotated", None) is not None
+            else (obj.net_paid or 0)
+        )
+
+    def get_balance_due(self, obj):
+        return float(
+            getattr(obj, "balance_due_annotated", None)
+            if getattr(obj, "balance_due_annotated", None) is not None
+            else (obj.balance_due or 0)
+        )
 
     def get_real_amount_due(self, obj):
-        ratio = Decimal("1.00") - (obj.discount_percent or Decimal("0.00")) / Decimal("100.00")
+        # ⚠️ toujours recalculer côté serializer (safe)
+        ratio = Decimal("1.00") - (
+            (obj.discount_percent or Decimal("0.00")) / Decimal("100.00")
+        )
+
         return float(
-            (obj.amount_due * ratio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            (obj.amount_due * ratio).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
         )
 
     def get_is_fully_paid(self, obj):
-        return obj.is_fully_paid
+        # ⚠️ fallback safe si annotation absente
+        if hasattr(obj, "is_fully_paid"):
+            return obj.is_fully_paid
 
-    def get_balance_due(self, obj):
-        return float(obj.balance_due)
-
-    def get_net_paid(self, obj):
-        return float(obj.net_paid)
+        return (obj.balance_due or 0) <= 0
 
     # ==========================================================
     # 🔵 URL SIGNÉE — CONTRAT
@@ -96,20 +119,26 @@ class ContractSerializer(serializers.ModelSerializer):
         if not obj.contract_url:
             return None
 
-        parsed = urlparse(obj.contract_url)
-        path = unquote(parsed.path)
-        key = "/".join(path.strip("/").split("/")[1:])  # enlève "contracts/"
-        return generate_presigned_url("contracts", key)
+        try:
+            parsed = urlparse(obj.contract_url)
+            path = unquote(parsed.path)
+            key = "/".join(path.strip("/").split("/")[1:])
+            return generate_presigned_url("contracts", key)
+        except Exception:
+            return None  # 🔥 évite crash API
 
     # ==========================================================
-    # 🔵 URL SIGNÉE — FACTURE (invoice_url)
+    # 🔵 URL SIGNÉE — FACTURE
     # ==========================================================
 
     def get_invoice_url(self, obj):
         if not obj.invoice_url:
             return None
 
-        parsed = urlparse(obj.invoice_url)
-        path = unquote(parsed.path)
-        key = "/".join(path.strip("/").split("/")[1:])  # enlève "invoices/"
-        return generate_presigned_url("invoices", key)
+        try:
+            parsed = urlparse(obj.invoice_url)
+            path = unquote(parsed.path)
+            key = "/".join(path.strip("/").split("/")[1:])
+            return generate_presigned_url("invoices", key)
+        except Exception:
+            return None

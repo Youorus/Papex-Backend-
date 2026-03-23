@@ -20,8 +20,8 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from api.leads_events.models import LeadEvent
-from api.leads_task_status.models import LeadTaskStatus
 from api.leads_task_type.models import LeadTaskType
+from api.leads_task.constants import LeadTaskStatus
 
 
 class LeadTask(models.Model):
@@ -53,10 +53,11 @@ class LeadTask(models.Model):
         verbose_name=_("type de tâche"),
     )
 
-    status = models.ForeignKey(
-        LeadTaskStatus,
-        on_delete=models.PROTECT,
-        related_name="tasks",
+    status = models.CharField(
+        max_length=30,
+        choices=LeadTaskStatus.CHOICES,
+        default=LeadTaskStatus.TODO,
+        db_index=True,
         verbose_name=_("statut"),
     )
 
@@ -155,7 +156,7 @@ class LeadTask(models.Model):
         history = {
             "old_due_at": self.due_at.isoformat(),
             "reason": reason,
-            "rescheduled_by": rescheduled_by.id if rescheduled_by else None,
+            "rescheduled_by": str(rescheduled_by.id) if rescheduled_by else None,  # 🔥 FIX
             "at": timezone.now().isoformat(),
         }
 
@@ -163,11 +164,18 @@ class LeadTask(models.Model):
         self.reschedule_count += 1
         self.due_at = new_due_at
 
+        # 🔥 BONUS (recommandé)
+        if self.status == LeadTaskStatus.DONE:
+            self.status = LeadTaskStatus.TODO
+            self.completed_at = None
+
         self.save(
             update_fields=[
                 "due_at",
                 "reschedule_count",
                 "reschedule_history",
+                "status",
+                "completed_at",
             ]
         )
 
@@ -179,7 +187,9 @@ class LeadTask(models.Model):
         """
 
         self.completed_at = timezone.now()
-        self.save(update_fields=["completed_at"])
+        self.status = LeadTaskStatus.DONE
+
+        self.save(update_fields=["completed_at", "status"])
 
         return self
 

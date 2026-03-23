@@ -30,6 +30,7 @@ api_urlpatterns = [
     path("statut-dossiers-internes/", include("api.statut_dossier_interne.urls")),
     # Documents clients (upload et gestion)
     path("documents/", include("api.documents.urls")),
+    path("document-types/", include("api.document_types.urls")),
     path("booking/", include("api.booking.urls")),
     path("appointments/", include("api.appointment.urls")),
     # Gestion des avatars utilisateurs (upload/profil)
@@ -52,7 +53,6 @@ api_urlpatterns = [
 
     # Lead Tasks
     path("lead-tasks/", include("api.leads_task.urls")),
-
     # Lead Event Types
     path("lead-event-types/", include("api.leads_event_type.urls")),
 

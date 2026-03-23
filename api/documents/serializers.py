@@ -12,19 +12,43 @@ class DocumentSerializer(serializers.ModelSerializer):
     """
 
     url = serializers.SerializerMethodField()
+    document_type_name = serializers.CharField(
+        source="document_type.name",
+        read_only=True,
+    )
 
     class Meta:
         model = Document
-        fields = ["id", "client", "url", "uploaded_at"]
+        fields = [
+            "id",
+            "client",
+            "document_type",        # ✅ ajout
+            "document_type_name",   # ✅ ajout (lisible côté front)
+            "url",
+            "uploaded_at",
+        ]
         read_only_fields = ["id", "uploaded_at", "url"]
 
     def get_url(self, obj):
         """
         Retourne une URL signée temporaire pour le document.
         """
-        if obj.url:
+        if not obj.url:
+            return None
+
+        try:
             parsed = urlparse(obj.url)
-            path = unquote(parsed.path)  # /documents-clients/fichier.pdf
-            key = "/".join(path.strip("/").split("/")[1:])  # enlève "documents-clients"
+            path = unquote(parsed.path).lstrip("/")
+
+            parts = path.split("/")
+
+            # enlève le prefix bucket si présent
+            if len(parts) > 1:
+                key = "/".join(parts[1:])
+            else:
+                key = parts[0]
+
             return generate_presigned_url("documents", key)
-        return None
+
+        except Exception:
+            return None

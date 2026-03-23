@@ -23,7 +23,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, IsAdminRole]
+    permission_classes = [IsAuthenticated]
     pagination_class = None  # À adapter si pagination requise
 
     search_fields = ["email", "first_name", "last_name"]

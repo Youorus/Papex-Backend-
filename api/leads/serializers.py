@@ -59,7 +59,8 @@ class LeadSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    form_data = ClientSerializer(read_only=True)
+    client_id = serializers.IntegerField(source="form_data.id", read_only=True)
+    # form_data = ClientSerializer(read_only=True)  # ❌ désactivé pour éviter payload lourd
 
     assigned_to = AssignedUserSerializer(read_only=True, many=True)
     jurist_assigned = AssignedUserSerializer(read_only=True, many=True)
@@ -183,7 +184,7 @@ class LeadSerializer(serializers.ModelSerializer):
             "last_reminder_sent",
             "created_at",
 
-            "form_data",
+            "client_id",
 
             "status",
             "status_display",

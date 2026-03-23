@@ -94,6 +94,7 @@ LOCAL_APPS = [
     "api.leads_task_type",
     "api.leads_task_status",
     "api.leads_task",
+    "api.document_types",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

@@ -135,7 +135,12 @@ class LeadEvent(models.Model):
         """
 
         # récupération type événement
-        event_type = LeadEventType.objects.get(code=event_code)
+        event_type, _ = LeadEventType.objects.get_or_create(
+            code=event_code,
+            defaults={
+                "label": event_code.replace("_", " ").title()
+            }
+        )
 
         # création événement
         event = cls.objects.create(

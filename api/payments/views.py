@@ -26,9 +26,21 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
     API ViewSet pour gérer les reçus de paiement (PaymentReceipt).
     """
 
-    queryset = PaymentReceipt.objects.select_related("client", "contract", "created_by")
     serializer_class = PaymentReceiptSerializer
     permission_classes = [IsPaymentEditor]
+
+    def get_queryset(self):
+        """
+        Permet de filtrer les paiements par contract_id.
+        """
+        queryset = PaymentReceipt.objects.select_related("client", "contract", "created_by")
+
+        contract_id = self.request.query_params.get("contract_id")
+
+        if contract_id:
+            queryset = queryset.filter(contract_id=contract_id)
+
+        return queryset.order_by("-payment_date")
 
     def _check_and_generate_invoice(self, contract):
         """

@@ -11,42 +11,79 @@ class DocumentViewSet(viewsets.ModelViewSet):
     CRUD des documents client, upload multi-fichiers, suppression cloud.
     """
 
-    queryset = Document.objects.select_related("client")
+    queryset = Document.objects.select_related("client", "document_type")
     serializer_class = DocumentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = super().get_queryset()
+
         client_id = self.request.query_params.get("client")
+        document_type_id = self.request.query_params.get("document_type")
+
         if client_id:
             qs = qs.filter(client_id=client_id)
+
+        if document_type_id:
+            qs = qs.filter(document_type_id=document_type_id)
+
         return qs
 
     def create(self, request, *args, **kwargs):
         """
         Upload un ou plusieurs fichiers.
+
+        Params :
+        - client (id) obligatoire
+        - document_type (id) optionnel
         - files[] ou file
-        - client ID en POST ou URL
         """
+
         client_id = request.data.get("client") or request.query_params.get("client")
+        document_type_id = request.data.get("document_type")
+
         if not client_id:
             return Response({"detail": "client ID requis"}, status=400)
+
+        # 🔹 Client
         from api.clients.models import Client
 
         try:
             client = Client.objects.get(pk=client_id)
         except Client.DoesNotExist:
             return Response({"detail": "Client inexistant"}, status=404)
+
+        # 🔹 DocumentType (optionnel)
+        document_type = None
+        if document_type_id:
+            from api.document_types.models import DocumentType
+
+            try:
+                document_type = DocumentType.objects.get(pk=document_type_id)
+            except DocumentType.DoesNotExist:
+                return Response(
+                    {"detail": "Type de document invalide"}, status=400
+                )
+
+        # 🔹 fichiers
         files = request.FILES.getlist("files") or [request.FILES.get("file")]
         files = [f for f in files if f]
 
-        documents = []
-        from api.storage_backends import MinioDocumentStorage
+        if not files:
+            return Response({"detail": "Aucun fichier fourni"}, status=400)
 
-        storage = MinioDocumentStorage()
+        documents = []
+
         for file in files:
+            # upload vers storage
             url = store_client_document(client, file, file.name)
-            doc = Document.objects.create(client=client, url=url)
+
+            # création document
+            doc = Document.objects.create(
+                client=client,
+                document_type=document_type,
+                url=url,
+            )
             documents.append(doc)
 
         serializer = self.get_serializer(documents, many=True)
@@ -56,23 +93,30 @@ class DocumentViewSet(viewsets.ModelViewSet):
         """
         Supprime en DB + bucket cloud (S3/Scaleway).
         """
+
         instance = self.get_object()
         file_url = instance.url
+
         if file_url:
             try:
-                from django.conf import settings
+                from urllib.parse import unquote, urlparse
 
                 from api.utils.cloud.scw.bucket_utils import delete_object
 
-                bucket_name = settings.SCW_BUCKETS["documents"]
-                split_token = f"/{bucket_name}/"
-                if split_token in file_url:
-                    path = file_url.split(split_token, 1)[1]
+                parsed = urlparse(file_url)
+                path = unquote(parsed.path).lstrip("/")
+
+                parts = path.split("/")
+
+                # enlève le prefix bucket si présent
+                if len(parts) > 1:
+                    key = "/".join(parts[1:])
                 else:
-                    path = file_url.split("/")[-2] + "/" + file_url.split("/")[-1]
-                if path.startswith("/"):
-                    path = path[1:]
-                delete_object("documents", path)
+                    key = parts[0]
+
+                delete_object("documents", key)
+
             except Exception as e:
-                print(f"Erreur suppression document du storage : {e}")
+                print(f"Erreur suppression document du storage : {e}")
+
         return super().destroy(request, *args, **kwargs)
