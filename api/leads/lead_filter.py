@@ -1,4 +1,5 @@
 from rest_framework import generics, permissions
+from rest_framework.filters import OrderingFilter
 from django.db.models import Q, Count
 from django.utils import timezone
 
@@ -12,6 +13,11 @@ class LeadFilterView(generics.ListAPIView):
     serializer_class = LeadSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = CRMLeadPagination
+
+    # 🔥 ajout du tri DRF
+    filter_backends = [OrderingFilter]
+    ordering_fields = ["appointment_date", "created_at"]
+    ordering = ["-created_at"]  # fallback
 
     def get_queryset(self):
 
@@ -99,16 +105,23 @@ class LeadFilterView(generics.ListAPIView):
 
             qs = qs.filter(task_q).distinct()
 
-        return qs.order_by("-created_at")
+        # 🔥 TRI FINAL
+        ordering = p.get("ordering")
+
+        if ordering:
+            qs = qs.order_by(ordering)
+        else:
+            # 👉 tri par heure de RDV par défaut
+            qs = qs.order_by("appointment_date", "-created_at")
+
+        return qs
 
     def list(self, request, *args, **kwargs):
 
         qs = self.get_queryset()
 
         page = self.paginate_queryset(qs)
-
         serializer = self.get_serializer(page, many=True)
-
         response = self.get_paginated_response(serializer.data)
 
         # ── Aggregates

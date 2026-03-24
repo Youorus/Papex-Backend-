@@ -426,6 +426,12 @@ SCW_BUCKETS = {
 if STORAGE_BACKEND == "aws":
     DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 
+
+
+SESSION_COOKIE_AGE = 60 * 60 * 8  # 8 heures
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
 # -----------------------------------------------------------------------------
 # LOGGING
 # -----------------------------------------------------------------------------
