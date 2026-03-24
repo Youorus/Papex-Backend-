@@ -379,7 +379,7 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 CELERY_IMPORTS = (
-    "api.leads.tasks.appointments",
+    "api.leads.tasks",
     "api.sms.tasks",
     "api.utils.email",
 )
