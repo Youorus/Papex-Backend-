@@ -340,6 +340,7 @@ CHANNEL_LAYERS = {
 # CELERY
 # -----------------------------------------------------------------------------
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
 
 CELERY_BROKER_TRANSPORT_OPTIONS = {
     "visibility_timeout": int(os.getenv("CELERY_VISIBILITY_TIMEOUT", "3600")),
@@ -356,18 +357,33 @@ CELERY_TASK_ROUTES = {
     "api.leads_task.tasks.create_absent_followup_task": {"queue": "scheduler"},
 }
 
+CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"))
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_PREFETCH_MULTIPLIER", "1"))
+
 CELERY_BEAT_SCHEDULE = {
     "process-appointment-reminders": {
         "task": "api.leads.tasks.appointments.process_appointment_reminders",
-        "schedule": crontab(minute="*/30"),
-        "options": {"queue": "scheduler"},
+        "schedule": crontab(minute="*/30"),  # Toutes les 30 minutes
+        "options": {"queue": "scheduler", "expires": 300}
     },
     "mark-leads-absent": {
         "task": "api.leads.tasks.appointments.mark_absent_leads",
-        "schedule": crontab(minute="*/30"),
-        "options": {"queue": "scheduler"},
+        "schedule": crontab(minute="*/30"),  # Toutes les 30 minutes
+        "options": {"queue": "scheduler", "expires": 300}
+    },
+    "process-absent-leads-followup": {
+        "task": "api.leads.tasks.appointments.process_absent_leads_followup",
+        "schedule": crontab(hour=10, minute=0),  # Tous les jours à 10h
+        "options": {"queue": "scheduler", "expires": 3600}
     },
 }
+
+CELERY_IMPORTS = (
+    "api.leads.tasks.appointments",
+    "api.sms.tasks",
+    "api.utils.email",
+)
+
 
 if IS_REDIS_SSL:
     CELERY_BROKER_TRANSPORT_OPTIONS["ssl_cert_reqs"] = ssl.CERT_NONE
