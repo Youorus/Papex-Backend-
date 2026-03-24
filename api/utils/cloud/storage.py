@@ -90,31 +90,34 @@ def store_invoice_pdf(contract, pdf_bytes: bytes, invoice_ref: str) -> str:
     return url
 
 
-def store_client_document(client, file_content, original_filename) -> str:
+def store_client_document(client, file_content, final_filename: str) -> str:
     """
-    Stocke un document client dans MinIO/S3, retourne l'URL publique.
-    :param client: instance Client
-    :param file_content: bytes ou ContentFile ou InMemoryUploadedFile
-    :param original_filename: str, nom d'origine (ex: "CNI.pdf")
-    :return: URL publique du document
-    """
-    client_slug = slugify(
-        f"{client.lead.last_name}_{client.lead.first_name}_{client.id}"
-    )
-    ext = original_filename.split(".")[-1] if "." in original_filename else "pdf"
-    safe_filename = slugify(original_filename.rsplit(".", 1)[0])
-    filename = f"{client_slug}/{safe_filename}.{ext}"
+    Stocke un document client dans MinIO/S3 et retourne l'URL publique.
 
+    :param client:         Instance Client (non utilisée ici, conservée pour compatibilité)
+    :param file_content:   bytes | ContentFile | InMemoryUploadedFile
+    :param final_filename: Nom de fichier FINAL déjà construit par _build_filename()
+                           — ne pas re-slugifier ici, le nom est prêt à l'emploi.
+    :return: URL publique du document stocké
+
+    Exemple de chemin stocké : "jean_dupont_contrat.pdf"
+    Exemple d'URL retournée  : "https://s3.example.com/documents/jean_dupont_contrat.pdf"
+    """
     storage = MinioDocumentStorage()
+
     if isinstance(file_content, bytes):
-        file_content = ContentFile(file_content, name=filename)
-    saved_path = storage.save(filename, file_content)
+        file_content = ContentFile(file_content, name=final_filename)
+    else:
+        # Pour InMemoryUploadedFile / TemporaryUploadedFile : on force le nom
+        file_content.name = final_filename
+
+    saved_path = storage.save(final_filename, file_content)
 
     location = f"{storage.location}/" if storage.location else ""
     endpoint = getattr(settings, "AWS_S3_ENDPOINT_URL", "")
     url = f"{endpoint}/{storage.bucket_name}/{location}{saved_path}"
-    return url
 
+    return url
 
 def store_candidate_cv(candidate, cv_file) -> str:
     """

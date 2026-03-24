@@ -14,12 +14,12 @@ from api.leads.models import Lead
 from api.payments.models import PaymentReceipt
 from api.payments.permissions import IsPaymentEditor
 from api.payments.serializers import PaymentReceiptSerializer
-from api.utils.cloud.scw.bucket_utils import delete_object
 from api.utils.email.recus.tasks import send_receipts_email_task
 from api.utils.email.recus.tasks import send_due_date_updated_email_task
 
 logger = logging.getLogger(__name__)
 
+FIELDS_THAT_REQUIRE_RECEIPT_PDF_REGEN = {"amount", "mode", "mode_detail", "payment_date"}
 
 class PaymentReceiptViewSet(viewsets.ModelViewSet):
     """
@@ -156,51 +156,60 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
         thread.start()
 
     def update(self, request, *args, **kwargs):
-        """
-        Surcharge de la méthode update avec régénération asynchrone du PDF.
-        """
         instance = self.get_object()
-
-        # Sauvegarde de l'ancienne URL pour suppression potentielle
         old_receipt_url = instance.receipt_url
 
-        # Appel de la méthode update normale
         response = super().update(request, *args, **kwargs)
 
-        # Si la mise à jour a réussi, on lance la régénération asynchrone
         if response.status_code == 200:
-            try:
-                # ✅ RAFRAÎCHIR l'instance depuis la base pour avoir les nouvelles données
+            changed_fields = set(request.data.keys())
+            if changed_fields & FIELDS_THAT_REQUIRE_RECEIPT_PDF_REGEN:
                 instance.refresh_from_db()
 
-                # Lancer la régénération asynchrone
-                self._regenerate_pdf_async(instance.id, old_receipt_url)
-                logger.info(f"Régénération PDF asynchrone lancée pour reçu #{instance.id}")
+                if old_receipt_url:
+                    try:
+                        self._delete_file_from_url("receipts", old_receipt_url)
+                    except Exception as e:
+                        logger.warning(f"Impossible de supprimer l'ancien reçu PDF: {e}")
 
-            except Exception as e:
-                logger.error(f"Erreur lancement régénération asynchrone: {e}")
+                # Reset en base ET en mémoire
+                PaymentReceipt.objects.filter(pk=instance.pk).update(receipt_url=None)
+                instance.receipt_url = None
+
+                instance.generate_pdf()
+                instance.refresh_from_db()
+
+                serializer = self.get_serializer(instance)
+                return Response(serializer.data)
 
         return response
 
     def partial_update(self, request, *args, **kwargs):
-        """
-        Surcharge de partial_update avec la même logique asynchrone.
-        """
         instance = self.get_object()
         old_receipt_url = instance.receipt_url
 
         response = super().partial_update(request, *args, **kwargs)
 
         if response.status_code == 200:
-            try:
-                # ✅ RAFRAÎCHIR l'instance depuis la base
+            changed_fields = set(request.data.keys())
+            if changed_fields & FIELDS_THAT_REQUIRE_RECEIPT_PDF_REGEN:
                 instance.refresh_from_db()
 
-                self._regenerate_pdf_async(instance.id, old_receipt_url)
-                logger.info(f"Régénération PDF asynchrone lancée pour reçu #{instance.id}")
+                if old_receipt_url:
+                    try:
+                        self._delete_file_from_url("receipts", old_receipt_url)
+                    except Exception as e:
+                        logger.warning(f"Impossible de supprimer l'ancien reçu PDF: {e}")
 
-            except Exception as e:
-                logger.error(f"Erreur lancement régénération asynchrone: {e}")
+                # Reset en base ET en mémoire
+                PaymentReceipt.objects.filter(pk=instance.pk).update(receipt_url=None)
+                instance.receipt_url = None
+
+                instance.generate_pdf()
+                instance.refresh_from_db()
+
+                serializer = self.get_serializer(instance)
+                return Response(serializer.data)
 
         return response
 

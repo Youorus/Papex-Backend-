@@ -61,16 +61,26 @@ def get_lead_display_name(lead) -> str:
 def get_service_sms_label(lead) -> str:
     """
     Retourne le libellé SMS normalisé ASCII du service du lead.
-    lead.service est un CharField avec choices LeadService (code direct).
-
     Priorité :
-      1. SERVICE_SMS_LABELS[lead.service]
-      2. SERVICE_SMS_FALLBACK ("votre dossier")
+      1. Service du contrat lié (lead.contract_services)
+      2. SERVICE_SMS_LABELS[lead.service] (fallback champ direct)
+      3. SERVICE_SMS_FALLBACK ("votre dossier")
     """
+    # 1. Service via le contrat
+    contract_services = lead.contract_services
+    if contract_services:
+        # On prend le premier contrat actif
+        service = contract_services.first()
+        if service:
+            return SERVICE_SMS_LABELS.get(str(service), SERVICE_SMS_FALLBACK)
+
+    # 2. Fallback sur le champ lead.service direct
     code = lead.service if lead.service else None
-    if not code:
-        return SERVICE_SMS_FALLBACK
-    return SERVICE_SMS_LABELS.get(code, SERVICE_SMS_FALLBACK)
+    if code:
+        return SERVICE_SMS_LABELS.get(code, SERVICE_SMS_FALLBACK)
+
+    # 3. Fallback ultime
+    return SERVICE_SMS_FALLBACK
 
 
 # ======================================================

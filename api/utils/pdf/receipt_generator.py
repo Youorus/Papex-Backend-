@@ -1,7 +1,10 @@
+# api/utils/pdf/receipt_generator.py
+
 import pdfkit
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
+
 
 # ============================================================================
 # CONSTANTES GÉNÉRIQUES POUR LES REÇUS
@@ -10,31 +13,19 @@ from django.utils import timezone
 class ReceiptConstants:
     """Constantes centralisées pour la génération des reçus PDF."""
 
-    # ----------------------------------
-    # Informations société
-    # ----------------------------------
     COMPANY_NAME = "SAS Papiers Express"
     COMPANY_LEGAL_FORM = "Société par Actions Simplifiée"
     COMPANY_RCS = "R.C.S Paris 990 924 201"
     COMPANY_ADDRESS = "39 rue Navier, 75017 Paris"
     COMPANY_CONTACT = "contact@papiers-express.fr | www.papiers-express.fr"
 
-    # ----------------------------------
-    # URLs ressources
-    # ----------------------------------
     LOGO_URL = "https://papiers-express.fr/logo.png"
     SIGNATURE_URL = "https://papiers-express.fr/signature.png"
     STAMP_URL = "https://papiers-express.fr/cachet2.png"
 
-    # ----------------------------------
-    # Formatage
-    # ----------------------------------
     DATE_FORMAT = "%d/%m/%Y"
     CURRENCY_SUFFIX = " €"
 
-    # ----------------------------------
-    # WKHTMLTOPDF CONFIG
-    # ----------------------------------
     PDF_OPTIONS = {
         "page-size": "A4",
         "margin-top": "15mm",
@@ -56,7 +47,7 @@ class ReceiptConstants:
 # ============================================================================
 
 def format_amount(value: float) -> str:
-    """formatte un montant en euros, toujours 2 décimales."""
+    """Formate un montant en euros, toujours 2 décimales."""
     try:
         return f"{float(value):.2f}{ReceiptConstants.CURRENCY_SUFFIX}"
     except Exception:
@@ -64,10 +55,13 @@ def format_amount(value: float) -> str:
 
 
 def format_date(dt) -> str:
-    """Sécurise l'affichage date."""
+    """Sécurise l'affichage date en convertissant en heure locale (Europe/Paris)."""
     if not dt:
         return "—"
     try:
+        # Si c'est un datetime aware (avec timezone), convertir en heure locale
+        if hasattr(dt, 'tzinfo') and dt.tzinfo is not None:
+            dt = timezone.localtime(dt)
         return dt.strftime(ReceiptConstants.DATE_FORMAT)
     except Exception:
         return str(dt)
@@ -82,7 +76,6 @@ def generate_receipt_pdf(receipt) -> bytes:
     Génère le PDF d'un reçu de paiement,
     avec les montants cumulés liés au contrat.
     """
-
     if receipt.pk:
         receipt.refresh_from_db()
 
@@ -91,33 +84,32 @@ def generate_receipt_pdf(receipt) -> bytes:
     contract = receipt.contract
 
     # =======================================================================
-    # LOGIQUE COMPTABLE FACTORISÉE
+    # LOGIQUE COMPTABLE
     # =======================================================================
     if contract:
-        # Montant total dû
-        total = getattr(contract, "real_amount_due", None)
-        if total is None:
-            total = getattr(contract, "amount_due", receipt.amount)
+        # Total après remise
+        total = contract.real_amount
 
-        # Total payé cumulé
-        amount_paid_total = getattr(contract, "amount_paid", 0) or 0
-
-        # Montant payé aujourd’hui
+        # Montant payé aujourd'hui (ce reçu)
         amount_today = receipt.amount
 
-        # Payé avant ce reçu
-        amount_before = amount_paid_total - amount_today
-        if amount_before < 0:
-            amount_before = 0
+        # Payé avant ce reçu — on exclut explicitement le reçu courant
+        # pour éviter tout problème de race condition ou double comptage
+        amount_before = sum(
+            r.amount for r in contract.receipts.all()
+            if r.pk != receipt.pk
+        )
+
+        # Total cumulé incluant ce reçu
+        amount_paid_total = amount_before + amount_today
 
         # Reste dû
-        remaining = total - amount_paid_total
-        if remaining < 0:
-            remaining = 0
+        remaining = contract.balance_due
 
         service_label = contract.service.label
+
     else:
-        # reçu simple sans contrat
+        # Reçu simple sans contrat
         service_label = "—"
         total = receipt.amount
         amount_today = receipt.amount
@@ -174,7 +166,7 @@ def generate_receipt_pdf(receipt) -> bytes:
     # =======================================================================
     html_string = render_to_string(
         "recu/receipt_template.html",
-        context
+        context,
     )
 
     # =======================================================================
@@ -192,5 +184,5 @@ def generate_receipt_pdf(receipt) -> bytes:
         html_string,
         False,
         configuration=cfg,
-        options=ReceiptConstants.PDF_OPTIONS
+        options=ReceiptConstants.PDF_OPTIONS,
     )

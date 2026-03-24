@@ -3,6 +3,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 
+from api.clients.models import Client
 from api.leads.constants import (
     RDV_PRESENTIEL,
     APPOINTMENT_TYPE_CHOICES,
@@ -169,3 +170,16 @@ class Lead(models.Model):
 
     def get_service_display(self):
         return dict(LeadService.choices).get(self.service)
+
+    @property
+    def contract_services(self):
+        """
+        Retourne tous les services des contrats liés à ce lead.
+        Chaîne : Lead → Client → Contracts → Service
+        """
+        try:
+            return self.form_data.contracts.select_related("service").values_list(
+                "service", flat=True
+            )
+        except Client.DoesNotExist:
+            return []

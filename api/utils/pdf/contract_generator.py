@@ -15,21 +15,17 @@ from api.contracts.models import Contract
 class ContractConstants:
     """Constantes centralisées pour la génération de contrats"""
 
-    # Informations sur la société
     COMPANY_NAME = "SAS Papiers Express"
     COMPANY_LEGAL_FORM = "Société par Actions Simplifiée"
     COMPANY_RCS = "R.C.S Paris 990 924 201"
     COMPANY_ADDRESS = "39 rue Navier, 75017 Paris"
     COMPANY_CONTACT = "contact@papiers-express.fr | www.papiers-express.fr"
     STAMP_URL = "https://papiers-express.fr/cachet2.png"
-    # URLs des ressources
     LOGO_URL = "https://papiers-express.fr/logo.png"
     SIGNATURE_URL = "https://papiers-express.fr/signature.png"
 
-    # Préfixe de référence du contrat
     CONTRACT_REF_PREFIX = "PAPEX"
 
-    # Liste factorisée des services
     SERVICES_LIST = [
         "Regroupement familial",
         "Obtention de titre de séjour",
@@ -38,18 +34,16 @@ class ContractConstants:
         "Suivi de dossier en préfecture",
         "Duplicata de titre de séjour",
         "DCEM (Document de Circulation pour Enfant Mineur)",
-        "Création d’entreprise",
+        "Création d'entreprise",
         "Assistance juridique",
         "Contestation OQTF",
         "Inscription universitaire",
         "Effacement du casier judiciaire"
     ]
 
-    # Formatage
     DATE_FORMAT = "%d/%m/%Y"
     CURRENCY_SUFFIX = " €"
 
-    # Options PDF
     PDF_OPTIONS = {
         'page-size': 'A4',
         'margin-top': '15mm',
@@ -61,11 +55,58 @@ class ContractConstants:
         'enable-local-file-access': None,
     }
 
-    # Chemin wkhtmltopdf
     @staticmethod
     def get_wkhtmltopdf_path():
-        """Récupère le chemin de wkhtmltopdf depuis les settings"""
         return getattr(settings, "WKHTMLTOPDF_PATH", None)
+
+
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+def format_amount(amount: float) -> str:
+    """Formate un montant en euros."""
+    try:
+        return f"{float(amount):.2f}{ContractConstants.CURRENCY_SUFFIX}"
+    except Exception:
+        return f"{amount}{ContractConstants.CURRENCY_SUFFIX}"
+
+
+def format_date(dt) -> str:
+    """Sécurise l'affichage date en convertissant en heure locale (Europe/Paris)."""
+    if not dt:
+        return "—"
+    try:
+        # Si c'est un datetime aware (avec timezone), convertir en heure locale
+        if hasattr(dt, 'tzinfo') and dt.tzinfo is not None:
+            dt = timezone.localtime(dt)
+        return dt.strftime(ContractConstants.DATE_FORMAT)
+    except Exception:
+        return str(dt)
+
+
+def calculate_final_amount(contract: Contract) -> float:
+    """Calcule le montant final après réduction éventuelle."""
+    if hasattr(contract, "real_amount_due") and contract.real_amount_due is not None:
+        return float(contract.real_amount_due)
+
+    amount = float(contract.amount_due)
+    if contract.discount_percent:
+        discount = amount * (float(contract.discount_percent) / 100)
+        amount -= discount
+
+    return amount
+
+
+def get_discount_info(contract: Contract) -> dict:
+    """Retourne les informations détaillées de la réduction."""
+    return {
+        "percent": f"{contract.discount_percent:.2f}%",
+        "original_amount": format_amount(float(contract.amount_due)),
+        "discount_amount": format_amount(
+            float(contract.amount_due) * (float(contract.discount_percent) / 100)
+        ),
+    }
 
 
 # ============================================================================
@@ -75,19 +116,15 @@ class ContractConstants:
 def generate_contract_pdf(contract: Contract) -> bytes:
     """
     Génère le PDF du contrat à partir du template HTML et retourne les bytes.
-    Version factorisée avec constantes centralisées.
     """
-
     client = contract.client
     lead = client.lead
 
-    # Montant final après remise
     montant_reel = calculate_final_amount(contract)
 
-    # Contexte transmis au template
     context = {
         # Informations de base
-        "date": timezone.now().strftime(ContractConstants.DATE_FORMAT),
+        "date": format_date(timezone.now()),
         "contract_id": contract.id,
         "contract_ref": f"{ContractConstants.CONTRACT_REF_PREFIX}-{contract.id}",
 
@@ -104,7 +141,7 @@ def generate_contract_pdf(contract: Contract) -> bytes:
         # Liste factorisée
         "services_list": ContractConstants.SERVICES_LIST,
 
-        # Société factorisée
+        # Société
         "company": {
             "name": ContractConstants.COMPANY_NAME,
             "legal_form": ContractConstants.COMPANY_LEGAL_FORM,
@@ -116,61 +153,21 @@ def generate_contract_pdf(contract: Contract) -> bytes:
             "stamp_url": ContractConstants.STAMP_URL,
         },
 
-        # Informations de réduction éventuelles
+        # Réduction éventuelle
         "discount_info": get_discount_info(contract) if contract.discount_percent else None,
     }
 
-    # Génération du HTML
     html_string = render_to_string("contrats/contract_template.html", context)
 
-    # Configuration de wkhtmltopdf
     wkhtmltopdf_path = ContractConstants.get_wkhtmltopdf_path()
     config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path) if wkhtmltopdf_path else None
 
-    # Génération du PDF
-    pdf_bytes = pdfkit.from_string(
+    return pdfkit.from_string(
         html_string,
         False,
         configuration=config,
-        options=ContractConstants.PDF_OPTIONS
+        options=ContractConstants.PDF_OPTIONS,
     )
-
-    return pdf_bytes
-
-
-# ============================================================================
-# FONCTIONS HELPER
-# ============================================================================
-
-def calculate_final_amount(contract: Contract) -> float:
-    """Calcule le montant final après réduction éventuelle"""
-
-    if hasattr(contract, "real_amount_due") and contract.real_amount_due is not None:
-        return float(contract.real_amount_due)
-
-    amount = float(contract.amount_due)
-
-    if contract.discount_percent:
-        discount = amount * (float(contract.discount_percent) / 100)
-        amount -= discount
-
-    return amount
-
-
-def format_amount(amount: float) -> str:
-    """Formate un montant en euros"""
-    return f"{amount:.2f}{ContractConstants.CURRENCY_SUFFIX}"
-
-
-def get_discount_info(contract: Contract) -> dict:
-    """Retourne les informations détaillées de la réduction"""
-    return {
-        "percent": f"{contract.discount_percent:.2f}%",
-        "original_amount": format_amount(float(contract.amount_due)),
-        "discount_amount": format_amount(
-            float(contract.amount_due) * (float(contract.discount_percent) / 100)
-        )
-    }
 
 
 # ============================================================================
@@ -178,15 +175,13 @@ def get_discount_info(contract: Contract) -> dict:
 # ============================================================================
 
 def get_contract_context(contract: Contract) -> dict:
-    """Retourne le contexte sans générer le PDF"""
-
+    """Retourne le contexte sans générer le PDF."""
     client = contract.client
     lead = client.lead
-
     montant_reel = calculate_final_amount(contract)
 
     return {
-        "date": timezone.now().strftime(ContractConstants.DATE_FORMAT),
+        "date": format_date(timezone.now()),
         "contract_id": contract.id,
         "contract_ref": f"{ContractConstants.CONTRACT_REF_PREFIX}-{contract.id}",
         "first_name": lead.first_name,

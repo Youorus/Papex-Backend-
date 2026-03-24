@@ -18,7 +18,7 @@ from api.utils.email.contracts.tasks import send_contract_email_task
 from api.utils.cloud.scw.bucket_utils import delete_object, put_object
 
 logger = logging.getLogger(__name__)
-
+FIELDS_THAT_REQUIRE_PDF_REGEN = {"amount_due", "discount_percent", "service"}
 
 class ContractViewSet(viewsets.ModelViewSet):
     queryset = Contract.objects.select_related("client", "created_by").prefetch_related("receipts")
@@ -110,6 +110,9 @@ class ContractViewSet(viewsets.ModelViewSet):
     # ─────────────────────────────
     # UPDATE
     # ─────────────────────────────
+
+
+    @transaction.atomic
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
 
@@ -120,7 +123,6 @@ class ContractViewSet(viewsets.ModelViewSet):
         if signed_contract:
             if instance.contract_url:
                 self._delete_file_from_url("contracts", instance.contract_url)
-
             instance.contract_url = self._save_signed_contract_pdf(instance, signed_contract)
             instance.save(update_fields=["contract_url"])
 
@@ -131,19 +133,44 @@ class ContractViewSet(viewsets.ModelViewSet):
         if refund_amount is not None:
             try:
                 amount = Decimal(str(refund_amount))
-
                 valid, msg = self._is_valid_refund_amount(instance, amount, False)
                 if not valid:
                     return Response({"detail": msg}, status=400)
-
                 instance.refund_amount = amount
                 instance.is_refunded = amount > 0
                 instance.save(update_fields=["refund_amount", "is_refunded"])
-
             except (InvalidOperation, TypeError):
                 return Response({"detail": "Montant invalide."}, status=400)
 
-        return super().partial_update(request, *args, **kwargs)
+        response = super().partial_update(request, *args, **kwargs)
+
+        # ── Régénération PDF si champs métier modifiés ────────
+        changed_fields = set(request.data.keys())
+        if changed_fields & FIELDS_THAT_REQUIRE_PDF_REGEN:
+            instance.refresh_from_db()
+
+            # 1. Supprimer l'ancien PDF du bucket
+            if instance.contract_url:
+                self._delete_file_from_url("contracts", instance.contract_url)
+
+            # 2. Reset l'URL pour forcer la régénération
+            Contract.objects.filter(pk=instance.pk).update(contract_url=None)
+            instance.contract_url = None
+
+            # 3. Régénérer
+            pdf_url = instance.generate_contract_pdf()
+            if not pdf_url:
+                raise APIException("Impossible de régénérer le PDF du contrat.")
+
+            # 4. Persister la nouvelle URL
+            Contract.objects.filter(pk=instance.pk).update(contract_url=pdf_url)
+            instance.contract_url = pdf_url
+
+            # 5. Retourner la réponse avec la nouvelle URL
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+
+        return response
 
     # ─────────────────────────────
     # DELETE
