@@ -350,11 +350,12 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
 }
 
 CELERY_TASK_ROUTES = {
-    "api.utils.email.*": {"queue": "emails"},
+    "api.leads.tasks.process_appointment_reminders": {"queue": "scheduler"},  # 👈 Plus de .appointments
+    "api.leads.tasks.mark_absent_leads": {"queue": "scheduler"},
+    "api.leads.tasks.process_absent_leads_followup": {"queue": "scheduler"},
+    "api.leads.tasks.send_confirm_presence_flow_task": {"queue": "sms"},
     "api.sms.tasks.*": {"queue": "sms"},
-    "api.leads.tasks.appointments.process_appointment_reminders": {"queue": "scheduler"},
-    "api.leads.tasks.appointments.mark_absent_leads": {"queue": "scheduler"},
-    "api.leads_task.tasks.create_absent_followup_task": {"queue": "scheduler"},
+    "api.utils.email.*": {"queue": "emails"},
 }
 
 CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"))
@@ -362,24 +363,24 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_PREFETCH_MULTIPLIER", 
 
 CELERY_BEAT_SCHEDULE = {
     "process-appointment-reminders": {
-        "task": "api.leads.tasks.appointments.process_appointment_reminders",
-        "schedule": crontab(minute="*/30"),  # Toutes les 30 minutes
+        "task": "api.leads.tasks.process_appointment_reminders",  # 👈 Plus de .appointments
+        "schedule": crontab(minute="*/30"),
         "options": {"queue": "scheduler", "expires": 300}
     },
     "mark-leads-absent": {
-        "task": "api.leads.tasks.appointments.mark_absent_leads",
-        "schedule": crontab(minute="*/30"),  # Toutes les 30 minutes
+        "task": "api.leads.tasks.mark_absent_leads",  # 👈 Plus de .appointments
+        "schedule": crontab(minute="*/30"),
         "options": {"queue": "scheduler", "expires": 300}
     },
     "process-absent-leads-followup": {
-        "task": "api.leads.tasks.appointments.process_absent_leads_followup",
-        "schedule": crontab(hour=10, minute=0),  # Tous les jours à 10h
+        "task": "api.leads.tasks.process_absent_leads_followup",  # 👈 Plus de .appointments
+        "schedule": crontab(hour=10, minute=0),
         "options": {"queue": "scheduler", "expires": 3600}
     },
 }
 
 CELERY_IMPORTS = (
-    "api.leads.tasks",
+    "api.leads.tasks",  # 👈 Plus de .appointments
     "api.sms.tasks",
     "api.utils.email",
 )
