@@ -1,4 +1,3 @@
-# papex/settings/production.py
 import os
 import ssl
 from datetime import timedelta
@@ -18,7 +17,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 ENV = os.getenv("ENV", "production")
-DEBUG = False  # prod = False
+DEBUG = False
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me")
 DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
@@ -26,7 +25,9 @@ DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
 # -----------------------------------------------------------------------------
 # HOSTS / URLS
 # -----------------------------------------------------------------------------
-ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
+ALLOWED_HOSTS = [
+    h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()
+]
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 # -----------------------------------------------------------------------------
@@ -58,8 +59,6 @@ THIRD_PARTY_APPS = [
     "django_filters",
     "background_task",
     "rest_framework",
-    "rest_framework_simplejwt",
-    "rest_framework_simplejwt.token_blacklist",
 ]
 
 LOCAL_APPS = [
@@ -151,6 +150,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# Si tu te connectes par email, garde ce backend custom.
+# Sinon remplace par le backend Django par défaut.
+AUTHENTICATION_BACKENDS = [
+    "api.custom_auth.authentication.EmailBackend",
+]
+
 # -----------------------------------------------------------------------------
 # I18N
 # -----------------------------------------------------------------------------
@@ -158,18 +163,16 @@ LANGUAGE_CODE = "fr-fr"
 TIME_ZONE = "Europe/Paris"
 USE_I18N = True
 USE_TZ = True
+
 CELERY_ENABLE_UTC = True
 CELERY_TIMEZONE = "Europe/Paris"
 
 # -----------------------------------------------------------------------------
-# REST + JWT
+# REST FRAMEWORK (SESSION AUTH)
 # -----------------------------------------------------------------------------
-ACCESS_MAX_AGE = int(os.getenv("ACCESS_TOKEN_LIFETIME_SECONDS", "900"))
-REFRESH_MAX_AGE = int(os.getenv("REFRESH_TOKEN_LIFETIME_SECONDS", "604800"))
-
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "api.custom_auth.authentication.CookieJWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -181,25 +184,13 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 30,
 }
 
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(seconds=ACCESS_MAX_AGE),
-    "REFRESH_TOKEN_LIFETIME": timedelta(seconds=REFRESH_MAX_AGE),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-    "ALGORITHM": "HS256",
-    "SIGNING_KEY": SECRET_KEY,
-    "AUTH_HEADER_TYPES": ("Bearer",),
-    "USER_ID_FIELD": "id",
-    "USER_ID_CLAIM": "user_id",
-}
-
 # -----------------------------------------------------------------------------
 # STATIC
 # -----------------------------------------------------------------------------
 STATIC_URL = "/static/"
 
 # -----------------------------------------------------------------------------
-# CACHES (ok en prod si tu assumes cache local par instance)
+# CACHES
 # -----------------------------------------------------------------------------
 CACHES = {
     "default": {
@@ -212,7 +203,10 @@ CACHES = {
 # -----------------------------------------------------------------------------
 # EMAIL (SMTP)
 # -----------------------------------------------------------------------------
-EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend",
+)
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("true", "1")
@@ -220,11 +214,14 @@ EMAIL_USE_SSL = False
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", f"Papiers Express <{EMAIL_HOST_USER}>")
+DEFAULT_FROM_EMAIL = os.getenv(
+    "DEFAULT_FROM_EMAIL",
+    f"Papiers Express <{EMAIL_HOST_USER}>"
+)
 SERVER_EMAIL = os.getenv("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
 
 # -----------------------------------------------------------------------------
-# OVH SMS
+# OVH SMS / PHONE
 # -----------------------------------------------------------------------------
 OVH_SMS_APP_KEY = os.getenv("OVH_SMS_APP_KEY")
 OVH_SMS_APP_SECRET = os.getenv("OVH_SMS_APP_SECRET")
@@ -232,15 +229,11 @@ OVH_SMS_CONSUMER_KEY = os.getenv("OVH_SMS_CONSUMER_KEY")
 OVH_SMS_SERVICE_NAME = os.getenv("OVH_SMS_SERVICE_NAME")
 OVH_SMS_SENDER = os.getenv("OVH_SMS_SENDER", "PAPEX")
 
-
-
 OVH_PHONE_APP_KEY = os.getenv("OVH_PHONE_APP_KEY")
 OVH_PHONE_APP_SECRET = os.getenv("OVH_PHONE_APP_SECRET")
 OVH_PHONE_CONSUMER_KEY = os.getenv("OVH_PHONE_CONSUMER_KEY")
-
 OVH_PHONE_BILLING_ACCOUNT = os.getenv("OVH_PHONE_BILLING_ACCOUNT")
 OVH_PHONE_SIP_LINE = os.getenv("OVH_PHONE_SIP_LINE")
-
 
 WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH")
 
@@ -255,23 +248,24 @@ SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
 SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
-
-# Cookies cross-subdomains
+SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_DOMAIN = COOKIE_DOMAIN
-CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
-
-# frontend et backend sur sous-domaines différents => SameSite=None obligatoire
+SESSION_COOKIE_PATH = "/"
 SESSION_COOKIE_SAMESITE = "None"
+
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
+CSRF_COOKIE_PATH = "/"
 CSRF_COOKIE_SAMESITE = "None"
 
-# HTTPS derrière proxy/CDN (Cloudflare/Render)
-SECURE_SSL_REDIRECT = False  # si Cloudflare force déjà HTTPS
+# HTTPS derrière proxy/CDN
+SECURE_SSL_REDIRECT = False
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
 
-# HSTS (recommandé en prod)
+# HSTS
 SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
@@ -280,8 +274,12 @@ SECURE_HSTS_PRELOAD = True
 # CORS / CSRF
 # -----------------------------------------------------------------------------
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
-CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
+CORS_ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
+]
 
 # -----------------------------------------------------------------------------
 # DATABASE (Render/Postgres)
@@ -289,7 +287,7 @@ CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "")
 DATABASES = {
     "default": dj_database_url.config(
         default=os.getenv("DATABASE_URL"),
-        conn_max_age=0,      # OK pour éviter les connexions zombies en environnements dynamiques
+        conn_max_age=0,
         ssl_require=True,
         engine="django.db.backends.postgresql",
     )
@@ -339,56 +337,41 @@ CHANNEL_LAYERS = {
 }
 
 # -----------------------------------------------------------------------------
-# CELERY (PROD SAFE)  ✅ C'EST ICI QUE TON PROBLÈME ÉTAIT
+# CELERY
 # -----------------------------------------------------------------------------
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
 
-# Transport options robustes contre les resets Redis Cloud
 CELERY_BROKER_TRANSPORT_OPTIONS = {
-    # si le worker meurt / perd la connexion, Redis ré-expose la tâche après ce délai
     "visibility_timeout": int(os.getenv("CELERY_VISIBILITY_TIMEOUT", "3600")),
-    # keepalive + healthcheck pour éviter idle timeout / resets
     "socket_keepalive": True,
     "retry_on_timeout": True,
     "health_check_interval": int(os.getenv("CELERY_HEALTHCHECK_INTERVAL", "30")),
 }
 
 CELERY_TASK_ROUTES = {
-    # Emails
-    "api.utils.email.*":  {"queue": "emails"},
-
-    # SMS — chemin exact du module
-    "api.sms.tasks.*":    {"queue": "sms"},
-
-    # Scheduler — rappels RDV + marquage absent + relances
+    "api.utils.email.*": {"queue": "emails"},
+    "api.sms.tasks.*": {"queue": "sms"},
     "api.leads.tasks.appointments.process_appointment_reminders": {"queue": "scheduler"},
-    "api.leads.tasks.appointments.mark_absent_leads":             {"queue": "scheduler"},
-    "api.leads_task.tasks.create_absent_followup_task":           {"queue": "scheduler"},
+    "api.leads.tasks.appointments.mark_absent_leads": {"queue": "scheduler"},
+    "api.leads_task.tasks.create_absent_followup_task": {"queue": "scheduler"},
 }
 
 CELERY_BEAT_SCHEDULE = {
-
-    # Rappels RDV 48h et 24h — doit tourner toutes les 30 min
-    # pour ne pas rater les fenêtres de détection (23h≤delta≤25h)
     "process-appointment-reminders": {
-        "task":    "api.leads.tasks.appointments.process_appointment_reminders",
+        "task": "api.leads.tasks.appointments.process_appointment_reminders",
         "schedule": crontab(minute="*/30"),
         "options": {"queue": "scheduler"},
     },
-
-    # Marquage absent si RDV passé sans présence
     "mark-leads-absent": {
-        "task":    "api.leads.tasks.appointments.mark_absent_leads",
+        "task": "api.leads.tasks.appointments.mark_absent_leads",
         "schedule": crontab(minute="*/30"),
         "options": {"queue": "scheduler"},
     },
 }
 
-# SSL pour rediss:// si un jour tu passes en TLS
 if IS_REDIS_SSL:
     CELERY_BROKER_TRANSPORT_OPTIONS["ssl_cert_reqs"] = ssl.CERT_NONE
 
-# 🔥 LE RÉGLAGE QUI ÉVITE LES MESSAGES "RÉSERVÉS MAIS PAS TRAITÉS"
 CELERY_WORKER_PREFETCH_MULTIPLIER = int(
     os.getenv("CELERY_PREFETCH_MULTIPLIER", "1")
 )
@@ -401,17 +384,14 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = os.getenv(
     "CELERY_REJECT_ON_WORKER_LOST", "true"
 ).lower() in ("true", "1")
 
-
-# Anticipation Celery 6 (ne pas tuer les tâches longues par surprise)
 worker_cancel_long_running_tasks_on_connection_loss = (
-    os.getenv("CELERY_CANCEL_LONG_RUNNING_ON_CONN_LOSS", "false").lower() in ("true", "1")
+    os.getenv("CELERY_CANCEL_LONG_RUNNING_ON_CONN_LOSS", "false").lower()
+    in ("true", "1")
 )
 
 CELERY_TASK_TRACK_STARTED = True
-
 CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", str(30 * 60)))
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", str(25 * 60)))
-
 CELERY_RESULT_EXPIRES = int(os.getenv("CELERY_RESULT_EXPIRES", "3600"))
 
 # -----------------------------------------------------------------------------

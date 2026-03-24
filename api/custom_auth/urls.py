@@ -1,13 +1,9 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenObtainPairView
-
-from api.custom_auth.views import CustomTokenRefreshView, LoginView, LogoutView
+from api.custom_auth.views import CsrfView, LoginView, LogoutView, MeView
 
 urlpatterns = [
-    # Authentification JWT native
-    path("token/", TokenObtainPairView.as_view(), name="api_token_obtain_pair"),
-    path("token/refresh/", CustomTokenRefreshView.as_view(), name="token_refresh"),
-    # Authentification "custom" (login par email/mot de passe)
+    path("csrf/", CsrfView.as_view(), name="csrf"),
     path("login/", LoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
+    path("me/", MeView.as_view(), name="me"),
 ]

@@ -1,27 +1,25 @@
-from django.conf import settings
+from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.middleware.csrf import get_token
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils.decorators import method_decorator
+
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import update_last_login
-from rest_framework_simplejwt.views import TokenRefreshView
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
-import logging
 
-logger = logging.getLogger(__name__)
+logger = __import__("logging").getLogger(__name__)
 User = get_user_model()
 
-# Paramètres partagés
-COOKIE_PARAMS = {
-    'secure': not settings.DEBUG,
-    'httponly': True,
-    'samesite': 'Lax' if settings.DEBUG else 'None',
-    'domain': getattr(settings, "COOKIE_DOMAIN", None),
-    'path': "/",
-}
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class CsrfView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"detail": "CSRF cookie set"})
 
 
 class LoginView(APIView):
@@ -29,87 +27,88 @@ class LoginView(APIView):
     authentication_classes = []
 
     def post(self, request):
-        from api.custom_auth.serializers import LoginSerializer
+        email = request.data.get("email")
+        password = request.data.get("password")
 
-        serializer = LoginSerializer(
-            data=request.data,
-            context={"request": request}
-        )
+        if not email or not password:
+            return Response(
+                {"detail": "Email et mot de passe requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        user = authenticate(request, username=email, password=password)
 
-        user = serializer.validated_data["user"]
-        tokens = serializer.validated_data["tokens"]
+        if user is None:
+            return Response(
+                {"detail": "Identifiants invalides."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
+        login(request, user)
         update_last_login(None, user)
 
-        response = Response({
-            "detail": "Success",
-            "role": user.role,
-        })
-
-        response.set_cookie(
-            "access_token",
-            tokens["access"],
-            max_age=settings.ACCESS_MAX_AGE,
-            **COOKIE_PARAMS
-        )
-
-        response.set_cookie(
-            "refresh_token",
-            tokens["refresh"],
-            max_age=settings.REFRESH_MAX_AGE,
-            **COOKIE_PARAMS
+        response = Response(
+            {
+                "detail": "Success",
+                "role": getattr(user, "role", None),
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                },
+            },
+            status=status.HTTP_200_OK,
         )
 
         response.set_cookie(
             "csrftoken",
             get_token(request),
             httponly=False,
-            samesite=COOKIE_PARAMS["samesite"],
-            secure=COOKIE_PARAMS["secure"]
+            secure=not __import__("django.conf").conf.settings.DEBUG,
+            samesite="Lax",
+            path="/",
         )
 
         response.set_cookie(
             "user_role",
-            user.role,
+            getattr(user, "role", ""),
             httponly=False,
-            samesite=COOKIE_PARAMS["samesite"],
-            secure=COOKIE_PARAMS["secure"]
+            secure=not __import__("django.conf").conf.settings.DEBUG,
+            samesite="Lax",
+            path="/",
         )
 
         return response
 
 
-class CustomTokenRefreshView(TokenRefreshView):
-    permission_classes = [AllowAny]
-    authentication_classes = []
-    def post(self, request, *args, **kwargs):
-        refresh_token = request.COOKIES.get("refresh_token")
-        if not refresh_token:
-            return Response({"detail": "Missing refresh token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        try:
-            refresh = RefreshToken(refresh_token)
-            data = {"access": str(refresh.access_token)}
-
-            # Rotation du refresh token
-            refresh.set_jti()
-            refresh.set_exp()
-            new_refresh = str(refresh)
-
-            response = Response({"detail": "Refreshed"}, status=status.HTTP_200_OK)
-            response.set_cookie('access_token', data["access"], max_age=settings.ACCESS_MAX_AGE, **COOKIE_PARAMS)
-            response.set_cookie('refresh_token', new_refresh, max_age=settings.REFRESH_MAX_AGE, **COOKIE_PARAMS)
-            return response
-        except (TokenError, InvalidToken):
-            return Response({"detail": "Invalid token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-
 class LogoutView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
-        response = Response(status=status.HTTP_204_NO_CONTENT)
-        for cookie in ("access_token", "refresh_token", "user_role", "csrftoken"):
-            response.delete_cookie(cookie, domain=COOKIE_PARAMS['domain'], path="/")
+        logout(request)
+
+        response = Response(
+            {"detail": "Logged out"},
+            status=status.HTTP_200_OK,
+        )
+
+        response.delete_cookie("sessionid", path="/")
+        response.delete_cookie("csrftoken", path="/")
+        response.delete_cookie("user_role", path="/")
+
         return response
+
+
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response(
+            {
+                "id": user.id,
+                "email": user.email,
+                "role": getattr(user, "role", None),
+                "is_authenticated": user.is_authenticated,
+            },
+            status=status.HTTP_200_OK,
+        )
