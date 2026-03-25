@@ -17,12 +17,6 @@ from api.sms.constants import (
 # ======================================================
 
 def normalize_phone(phone: str) -> str:
-    """
-    Normalise un numéro de téléphone au format E.164 FR.
-    Accepte : 06..., 07..., +336..., +337..., 336..., 337...
-    Rejette tout numéro non mobile français.
-    Retourne "" si invalide.
-    """
     if not phone:
         return ""
 
@@ -41,57 +35,64 @@ def normalize_phone(phone: str) -> str:
 
 
 # ======================================================
-# 👤 Nom affiché du lead (prénom prioritaire)
+# 👤 Nom affiché du lead
 # ======================================================
 
 def get_lead_display_name(lead) -> str:
-    """
-    Retourne le prénom si disponible, sinon le nom.
-    Retourne "" si aucun des deux n'est renseigné.
-    """
     first = (lead.first_name or "").strip()
     last  = (lead.last_name  or "").strip()
     return first or last or ""
 
 
 # ======================================================
-# 🏷️ Label SMS du service du lead
+# 🧠 SERVICE INTELLIGENT
 # ======================================================
 
-def get_service_sms_label(lead) -> str:
-    """
-    Retourne le libellé SMS normalisé ASCII du service du lead.
-    Priorité :
-      1. Service du contrat lié (lead.contract_services)
-      2. SERVICE_SMS_LABELS[lead.service] (fallback champ direct)
-      3. SERVICE_SMS_FALLBACK ("votre dossier")
-    """
-    # 1. Service via le contrat
-    contract_services = lead.contract_services
-    if contract_services:
-        # On prend le premier contrat actif
-        service = contract_services.first()
-        if service:
-            return SERVICE_SMS_LABELS.get(str(service), SERVICE_SMS_FALLBACK)
+def get_lead_service_label_from_contract_or_lead(lead) -> str:
+    try:
+        contract = (
+            lead.form_data.contracts
+            .select_related("service")
+            .order_by("-created_at")
+            .first()
+        )
+        if contract and contract.service:
+            return contract.service.label
+    except Exception:
+        pass
 
-    # 2. Fallback sur le champ lead.service direct
-    code = lead.service if lead.service else None
-    if code:
-        return SERVICE_SMS_LABELS.get(code, SERVICE_SMS_FALLBACK)
+    try:
+        if lead.form_data and lead.form_data.type_demande:
+            return lead.form_data.type_demande.label
+    except Exception:
+        pass
 
-    # 3. Fallback ultime
+    if lead.service:
+        return lead.get_service_display() or lead.service
+
     return SERVICE_SMS_FALLBACK
 
 
 # ======================================================
-# ✍️ Normalisation texte GSM 7-bit
+# 🏷️ SERVICE SMS FINAL
+# ======================================================
+
+def get_service_sms_label(lead) -> str:
+    label = get_lead_service_label_from_contract_or_lead(lead)
+
+    if not label:
+        return SERVICE_SMS_FALLBACK
+
+    key = str(label).upper().replace(" ", "_")
+
+    return SERVICE_SMS_LABELS.get(key, label[:40])
+
+
+# ======================================================
+# ✍️ NORMALISATION GSM STRICT (ANTI-UNICODE)
 # ======================================================
 
 def normalize_sms(text: str) -> str:
-    """
-    Remplace les caractères non-GSM 7-bit par leurs équivalents ASCII.
-    Nécessaire pour garantir le comptage à 160 chars / crédit OVH.
-    """
     text = unicodedata.normalize("NFKD", text)
 
     replacements = {
@@ -107,38 +108,64 @@ def normalize_sms(text: str) -> str:
         "Ô": "O", "Ö": "O",
         "Ù": "U", "Û": "U", "Ü": "U",
         "Ç": "C",
-        "«": '"', "»": '"', "€": "EUR",
+        "€": "EUR",
     }
 
     for old, new in replacements.items():
         text = text.replace(old, new)
 
-    return text.encode("ascii", "ignore").decode("ascii")
+    # 🔥 supprime tous les caractères non GSM (emoji inclus)
+    text = text.encode("ascii", "ignore").decode("ascii")
+
+    return text
 
 
 # ======================================================
-# 📏 Validation longueur SMS (1 crédit = 160 chars)
+# 📏 OPTIMISATION LONGUEUR (SMART)
 # ======================================================
 
-def validate_sms_length(message: str) -> str:
-    """
-    Vérifie que le message ne dépasse pas SMS_MAX_LENGTH (160).
-    Si trop long, tente deux raccourcissements successifs :
-      1. Remplace l'adresse complète par "Paris 17"
-      2. Remplace le nom de la société par "Papiers Exp"
-    Lève ValueError si toujours trop long après optimisation.
-    """
+def optimize_sms_length(message: str) -> str:
     if len(message) <= SMS_MAX_LENGTH:
         return message
 
-    shortened = message.replace(COMPANY_ADDRESS_SHORT, "Paris 17")
+    # 1. raccourcir adresse
+    message = message.replace(COMPANY_ADDRESS_SHORT, "Paris 17")
 
-    if len(shortened) > SMS_MAX_LENGTH:
-        shortened = shortened.replace(COMPANY_NAME, "Papiers Exp")
+    if len(message) <= SMS_MAX_LENGTH:
+        return message
 
-    if len(shortened) > SMS_MAX_LENGTH:
-        raise ValueError(
-            f"SMS trop long apres optimisation ({len(shortened)} caracteres)"
-        )
+    # 2. raccourcir nom société
+    message = message.replace(COMPANY_NAME, "Papiers Exp")
 
-    return shortened
+    return message
+
+
+# ======================================================
+# 🔥 GARANTIE 1 SMS (COUPE FINALE)
+# ======================================================
+
+def enforce_single_sms(message: str) -> str:
+    if len(message) <= SMS_MAX_LENGTH:
+        return message
+
+    # coupe propre
+    return message[:157] + "..."
+
+
+# ======================================================
+# 🚀 PIPELINE FINAL (UTILISE ÇA)
+# ======================================================
+
+def build_sms(message: str) -> str:
+    """
+    Pipeline complet :
+    - GSM safe
+    - optimisation longueur
+    - garantie 1 crédit
+    """
+
+    message = normalize_sms(message)
+    message = optimize_sms_length(message)
+    message = enforce_single_sms(message)
+
+    return message

@@ -146,35 +146,6 @@ class LeadViewSetV2(viewsets.ModelViewSet):
             "updated": leads.count()
         })
 
-    from rest_framework.decorators import action
-    from rest_framework.response import Response
-
-    @action(detail=True, methods=["post"])
-    def set_statut_dossier(self, request, pk=None):
-        """
-        Assigner un statut dossier à un lead
-        """
-        lead = self.get_object()
-        statut_id = request.data.get("statut_dossier_id")
-
-        if not statut_id:
-            return Response({"detail": "statut_dossier_id requis"}, status=400)
-
-        from api.statut_dossier.models import StatutDossier
-
-        try:
-            statut = StatutDossier.objects.get(pk=statut_id)
-        except StatutDossier.DoesNotExist:
-            return Response({"detail": "Statut introuvable"}, status=404)
-
-        lead.statut_dossier = statut
-        lead.save()
-
-        return Response({
-            "success": True,
-            "statut_dossier": statut.id
-        })
-
     # --------------------------
     # CREATE
     # --------------------------
@@ -196,10 +167,16 @@ class LeadViewSetV2(viewsets.ModelViewSet):
     # --------------------------
 
     def perform_update(self, serializer):
+        instance = serializer.instance
 
-        old_status = serializer.instance.status if serializer.instance else None
+        old_status = instance.status
+        old_dossier_status = instance.statut_dossier  # 🔥 AJOUT
+
         lead = serializer.save()
 
+        # --------------------------
+        # STATUS CLASSIQUE
+        # --------------------------
         if old_status and old_status != lead.status:
             LeadEvent.log(
                 lead=lead,
@@ -210,3 +187,22 @@ class LeadViewSetV2(viewsets.ModelViewSet):
                     "to": lead.status.code,
                 },
             )
+
+        # --------------------------
+        # 🔥 DOSSIER STATUS CHANGED
+        # --------------------------
+        if old_dossier_status != lead.statut_dossier:
+            from api.leads.automation.handlers import handle_dossier_status_changed
+
+            event = LeadEvent.log(
+                lead=lead,
+                event_code="DOSSIER_STATUS_CHANGED",
+                actor=self.request.user,
+                data={
+                    "from": old_dossier_status.id if old_dossier_status else None,
+                    "to": lead.statut_dossier.id if lead.statut_dossier else None,
+                },
+            )
+
+            # 🔥 TRIGGER HANDLER (EMAIL + SMS)
+            handle_dossier_status_changed(event)

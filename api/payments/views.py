@@ -245,12 +245,8 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
     def send_receipts_email(self, request):
         """
         Envoie un ou plusieurs reçus PDF par email au lead concerné.
-
-        Expects: {
-            "lead_id": int,
-            "receipt_ids": [int, ...]
-        }
         """
+
         lead_id = request.data.get("lead_id")
         receipt_ids = request.data.get("receipt_ids", [])
 
@@ -267,6 +263,9 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
                 {"detail": "receipt_ids doit contenir des entiers."}, status=400
             )
 
+        from api.leads.models import Lead
+        from api.payments.models import PaymentReceipt
+
         try:
             lead = Lead.objects.get(pk=lead_id)
         except Lead.DoesNotExist:
@@ -277,20 +276,36 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
                 {"detail": "Ce lead ne possède pas d'adresse email."}, status=400
             )
 
-        receipts = PaymentReceipt.objects.filter(id__in=receipt_ids, client__lead=lead)
-        if not receipts.exists():
-            return Response({"detail": "Aucun reçu trouvé pour ce lead."}, status=404)
+        receipts = PaymentReceipt.objects.filter(
+            id__in=receipt_ids,
+            client__lead=lead
+        )
 
-        try:
-            send_receipts_email_task.delay(lead.id)
-        except Exception as e:
-            logger.exception(
-                "Erreur lors du déclenchement de la task d'envoi des reçus."
+        if not receipts.exists():
+            return Response(
+                {"detail": "Aucun reçu trouvé pour ce lead."},
+                status=404
             )
-            return Response({"detail": f"Erreur technique : {str(e)}"}, status=500)
+
+        # 🔥 EVENT
+        from api.leads_events.models import LeadEvent
+        from api.leads.automation.handlers.receipt_sent import handle_receipts_email_sent
+
+        event = LeadEvent.log(
+            lead=lead,
+            event_code="RECEIPTS_EMAIL_SENT",
+            actor=request.user,
+            data={
+                "receipt_ids": receipt_ids,
+            },
+        )
+
+        # 🔥 HANDLER
+        handle_receipts_email_sent(event)
 
         return Response(
-            {"detail": "Envoi des reçus programmé avec succès."}, status=200
+            {"detail": "📨 Envoi des reçus en cours."},
+            status=200
         )
 
     @action(detail=False, methods=["get"], url_path="upcoming")

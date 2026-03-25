@@ -1,26 +1,20 @@
 from rest_framework import generics, permissions
-from rest_framework.filters import OrderingFilter
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Exists, OuterRef
 from django.utils import timezone
 
 from api.core.pagination import CRMLeadPagination
 from api.leads.models import Lead
 from api.leads.serializers import LeadSerializer
+from api.contracts.models import Contract
+from api.leads_task.models import LeadTask
 
 
 class LeadFilterView(generics.ListAPIView):
-
     serializer_class = LeadSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = CRMLeadPagination
 
-    # 🔥 ajout du tri DRF
-    filter_backends = [OrderingFilter]
-    ordering_fields = ["appointment_date", "created_at"]
-    ordering = ["-created_at"]  # fallback
-
     def get_queryset(self):
-
         p = self.request.query_params
 
         qs = (
@@ -30,103 +24,126 @@ class LeadFilterView(generics.ListAPIView):
                 "statut_dossier",
                 "statut_dossier_interne",
             )
-            .prefetch_related(
-                "assigned_to",
-                "jurist_assigned",
-            )
+            .prefetch_related("assigned_to")
         )
 
-        # ── Date création
-        created_from = p.get("created_from")
-        created_to = p.get("created_to")
+        # ───────────────────────
+        # 📅 Dates
+        # ───────────────────────
 
-        if created_from:
-            qs = qs.filter(created_at__date__gte=created_from)
+        if p.get("created_from"):
+            qs = qs.filter(created_at__date__gte=p.get("created_from"))
 
-        if created_to:
-            qs = qs.filter(created_at__date__lte=created_to)
+        if p.get("created_to"):
+            qs = qs.filter(created_at__date__lte=p.get("created_to"))
 
-        # ── Date rendez-vous
-        appt_from = p.get("appointment_from")
-        appt_to = p.get("appointment_to")
+        if p.get("appointment_from"):
+            qs = qs.filter(appointment_date__date__gte=p.get("appointment_from"))
 
-        if appt_from:
-            qs = qs.filter(appointment_date__date__gte=appt_from)
+        if p.get("appointment_to"):
+            qs = qs.filter(appointment_date__date__lte=p.get("appointment_to"))
 
-        if appt_to:
-            qs = qs.filter(appointment_date__date__lte=appt_to)
+        # ───────────────────────
+        # 📌 Champs simples
+        # ───────────────────────
 
-        # ── Type RDV
-        appt_type = p.get("appointment_type")
-        if appt_type:
-            qs = qs.filter(appointment_type=appt_type)
+        if p.get("appointment_type"):
+            qs = qs.filter(appointment_type=p.get("appointment_type"))
 
-        # ── Statut lead
-        status_ids = p.getlist("status")
-        if status_ids:
-            qs = qs.filter(status_id__in=status_ids)
+        if p.getlist("status"):
+            qs = qs.filter(status_id__in=p.getlist("status"))
 
-        # ── Statut dossier
-        dossier_status = p.get("dossier_status")
-        if dossier_status:
-            qs = qs.filter(statut_dossier_id=dossier_status)
+        if p.get("dossier_status"):
+            qs = qs.filter(statut_dossier_id=p.get("dossier_status"))
 
-        # ── Juriste
-        jurist_id = p.get("jurist_id")
-        if jurist_id:
-            qs = qs.filter(jurist_assigned__id=jurist_id)
+        if p.get("assigned_to"):
+            qs = qs.filter(assigned_to__id=p.get("assigned_to"))
 
-        # ── Conseiller
-        advisor_id = p.get("advisor_id")
-        if advisor_id:
-            qs = qs.filter(assigned_to__id=advisor_id)
+        # ───────────────────────
+        # 🧠 EXISTS (CRUCIAL)
+        # ───────────────────────
 
-        # ── Tâches
+        qs = qs.annotate(
+            has_tasks=Exists(
+                LeadTask.objects.filter(lead=OuterRef("pk"))
+            ),
+            has_contract=Exists(
+                Contract.objects.filter(client__lead=OuterRef("pk"))
+            ),
+        )
+
+        # ───────────────────────
+        # ✅ Filtre tâches (clean)
+        # ───────────────────────
+
         has_tasks = p.get("has_tasks")
 
         if has_tasks == "true":
-            qs = qs.filter(tasks__isnull=False).distinct()
+            qs = qs.filter(has_tasks=True)
 
         elif has_tasks == "false":
-            qs = qs.filter(tasks__isnull=True)
+            qs = qs.filter(has_tasks=False)
 
-        task_due_from = p.get("task_due_from")
-        task_due_to = p.get("task_due_to")
+        # 📅 Filtre échéance tâche (SANS JOIN)
+        if p.get("task_due_from") or p.get("task_due_to"):
 
-        if task_due_from or task_due_to:
+            task_filters = {"lead": OuterRef("pk")}
 
-            task_q = Q()
+            if p.get("task_due_from"):
+                task_filters["due_at__date__gte"] = p.get("task_due_from")
 
-            if task_due_from:
-                task_q &= Q(tasks__due_at__date__gte=task_due_from)
+            if p.get("task_due_to"):
+                task_filters["due_at__date__lte"] = p.get("task_due_to")
 
-            if task_due_to:
-                task_q &= Q(tasks__due_at__date__lte=task_due_to)
+            qs = qs.annotate(
+                has_filtered_tasks=Exists(
+                    LeadTask.objects.filter(**task_filters)
+                )
+            ).filter(has_filtered_tasks=True)
 
-            qs = qs.filter(task_q).distinct()
+        # ───────────────────────
+        # 📄 Filtre contrats
+        # ───────────────────────
 
-        # 🔥 TRI FINAL
-        ordering = p.get("ordering")
+        has_contract = p.get("has_contract")
 
-        if ordering:
-            qs = qs.order_by(ordering)
-        else:
-            # 👉 tri par heure de RDV par défaut
-            qs = qs.order_by("appointment_date", "-created_at")
+        if has_contract == "true":
+            qs = qs.filter(has_contract=True)
 
-        return qs
+        elif has_contract == "false":
+            qs = qs.filter(has_contract=False)
+
+        # 👤 Créateur du contrat
+        if p.get("contract_created_by"):
+            qs = qs.annotate(
+                contract_by_user=Exists(
+                    Contract.objects.filter(
+                        client__lead=OuterRef("pk"),
+                        created_by_id=p.get("contract_created_by"),
+                    )
+                )
+            ).filter(contract_by_user=True)
+
+        return qs.order_by("-created_at")
+
+    # ───────────────────────
+    # 📊 LIST + AGGREGATES
+    # ───────────────────────
 
     def list(self, request, *args, **kwargs):
-
         qs = self.get_queryset()
 
         page = self.paginate_queryset(qs)
         serializer = self.get_serializer(page, many=True)
+
         response = self.get_paginated_response(serializer.data)
 
-        # ── Aggregates
+        # ───────────────────────
+        # 📊 Aggregates
+        # ───────────────────────
 
-        by_status_raw = (
+        # 🟢 Par statut
+        by_status = list(
             qs.values("status__id", "status__label", "status__color")
             .annotate(count=Count("id"))
             .order_by("-count")
@@ -139,10 +156,11 @@ class LeadFilterView(generics.ListAPIView):
                 "color": row["status__color"] or "#888",
                 "count": row["count"],
             }
-            for row in by_status_raw
+            for row in by_status
         ]
 
-        by_appt_raw = (
+        # 🟣 Par type de RDV
+        by_appointment_type = list(
             qs.exclude(appointment_type__isnull=True)
             .exclude(appointment_type="")
             .values("appointment_type")
@@ -155,17 +173,23 @@ class LeadFilterView(generics.ListAPIView):
                 "type": row["appointment_type"],
                 "count": row["count"],
             }
-            for row in by_appt_raw
+            for row in by_appointment_type
         ]
 
-        total_with_tasks = qs.filter(tasks__isnull=False).distinct().count()
+        # 🔵 Totaux tâches (SANS JOIN)
+        total_with_tasks = qs.filter(has_tasks=True).count()
 
         now = timezone.now()
 
-        total_overdue_tasks = qs.filter(
-            tasks__due_at__lt=now,
-            tasks__completed_at__isnull=True,
-        ).distinct().count()
+        total_overdue_tasks = qs.annotate(
+            has_overdue_tasks=Exists(
+                LeadTask.objects.filter(
+                    lead=OuterRef("pk"),
+                    completed_at__isnull=True,
+                    due_at__lt=now,
+                )
+            )
+        ).filter(has_overdue_tasks=True).count()
 
         response.data["aggregates"] = {
             "by_status": by_status,

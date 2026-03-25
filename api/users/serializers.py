@@ -24,7 +24,7 @@ class UserSerializer(serializers.ModelSerializer):
     role = serializers.ChoiceField(
         choices=UserRoles.choices, required=True, help_text=_("Rôle de l'utilisateur")
     )
-    # Ajout PRO : toujours renvoyer une URL complète (http…) pour l’avatar
+
     avatar_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -40,11 +40,25 @@ class UserSerializer(serializers.ModelSerializer):
             "is_active",
             "date_joined",
             "avatar",
-            "avatar_url",  # Ajoute "avatar" ici
+            "avatar_url",
             "password",
         ]
         read_only_fields = ("is_staff", "is_superuser", "date_joined", "id")
 
+    # ✅ Formatage des noms (affichage uniquement)
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        def format_name(value):
+            return "-".join(part.capitalize() for part in value.split("-"))
+
+        if data.get("first_name"):
+            data["first_name"] = format_name(data["first_name"])
+
+        if data.get("last_name"):
+            data["last_name"] = format_name(data["last_name"])
+
+        return data
 
     def get_avatar_url(self, obj):
         if obj.avatar:
@@ -59,13 +73,11 @@ class UserSerializer(serializers.ModelSerializer):
         password = validated_data.pop("password", None)
         role = validated_data.get("role")
 
-        # Vérifie que le mot de passe est fourni
         if not password:
             raise serializers.ValidationError(
                 {"password": _("Le mot de passe est requis lors de la création.")}
             )
 
-        # Normalise le rôle (str) si besoin
         if isinstance(role, UserRoles):
             validated_data["role"] = role.value
 

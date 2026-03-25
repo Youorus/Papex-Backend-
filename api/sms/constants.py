@@ -3,6 +3,7 @@ COMPANY_PHONE         = "0142596008"
 COMPANY_ADDRESS_SHORT = "39 rue Navier, 75017"
 
 SMS_MAX_LENGTH = 160
+ACCESS_CODE = "36B59"
 
 SERVICE_SMS_LABELS = {
     "TITRE_SEJOUR":           "Titre de sejour",

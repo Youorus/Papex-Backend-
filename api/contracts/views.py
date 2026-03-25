@@ -223,8 +223,29 @@ class ContractViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="send-email")
     def send_email(self, request, pk=None):
         contract = self.get_object()
-        send_contract_email_task.delay(contract.id)
-        return Response({"detail": "📨 Email en cours d'envoi."}, status=202)
+
+        from api.leads_events.models import LeadEvent
+        from api.leads.automation.handlers.contract_sent import handle_contract_email_sent
+
+        lead = contract.client.lead
+
+        # 🔥 EVENT
+        event = LeadEvent.log(
+            lead=lead,
+            event_code="CONTRACT_EMAIL_SENT",
+            actor=request.user,
+            data={
+                "contract_id": contract.id,
+            },
+        )
+
+        # 🔥 HANDLER (qui déclenche email)
+        handle_contract_email_sent(event)
+
+        return Response(
+            {"detail": "📨 Email en cours d'envoi."},
+            status=202
+        )
 
     # ─────────────────────────────
     # HELPERS

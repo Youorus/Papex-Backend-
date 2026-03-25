@@ -17,6 +17,21 @@ class AssignedUserSerializer(serializers.ModelSerializer):
         model = User
         fields = ("id", "first_name", "last_name", "email", "avatar", "avatar_url")
 
+    # ✅ Formatage des noms (affichage uniquement)
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        def format_name(value):
+            return "-".join(part.capitalize() for part in value.split("-"))
+
+        if data.get("first_name"):
+            data["first_name"] = format_name(data["first_name"])
+
+        if data.get("last_name"):
+            data["last_name"] = format_name(data["last_name"])
+
+        return data
+
     def get_avatar_url(self, obj):
         if obj.avatar:
             return generate_presigned_url("avatars", obj.avatar)

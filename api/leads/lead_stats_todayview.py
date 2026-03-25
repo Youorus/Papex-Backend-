@@ -16,6 +16,9 @@ class LeadStatsTodayView(APIView):
 
         all_leads = Lead.objects.all()
 
+        # 🔥 TOTAL LEADS
+        total_leads = all_leads.count()
+
         rdv_confirme_today = all_leads.filter(
             appointment_date__date=today,
             status__code__in=["RDV_CONFIRME", "CONFIRME"],
@@ -31,21 +34,20 @@ class LeadStatsTodayView(APIView):
             status__code__in=["PRESENT", "RDV_PRESENT"],
         ).count()
 
-        # Tâches dues AUJOURD'HUI (pas en retard, pas futures)
         tasks_today = all_leads.filter(
             tasks__due_at__date=today,
             tasks__completed_at__isnull=True,
             tasks__assigned_to=user,
         ).distinct().count()
 
-        # Tâches en retard = dues AVANT aujourd'hui, non complétées
         total_overdue_tasks = all_leads.filter(
-            tasks__due_at__date__lt=today,   # ← __date__lt=today plutôt que __lt=now
+            tasks__due_at__date__lt=today,
             tasks__completed_at__isnull=True,
             tasks__assigned_to=user,
         ).distinct().count()
 
         return Response({
+            "total_leads": total_leads,
             "rdv_confirme_today": rdv_confirme_today,
             "rdv_a_confirmer_today": rdv_a_confirmer_today,
             "presents_today": presents_today,
