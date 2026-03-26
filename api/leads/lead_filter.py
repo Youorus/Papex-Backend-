@@ -16,6 +16,7 @@ class LeadFilterView(generics.ListAPIView):
 
     def get_queryset(self):
         p = self.request.query_params
+        user = self.request.user  # 👤 On récupère l'utilisateur connecté
 
         qs = (
             Lead.objects
@@ -65,7 +66,8 @@ class LeadFilterView(generics.ListAPIView):
 
         qs = qs.annotate(
             has_tasks=Exists(
-                LeadTask.objects.filter(lead=OuterRef("pk"))
+                # 🔥 On filtre les tâches assignées à l'utilisateur connecté
+                LeadTask.objects.filter(lead=OuterRef("pk"), assigned_to=user)
             ),
             has_contract=Exists(
                 Contract.objects.filter(client__lead=OuterRef("pk"))
@@ -87,7 +89,8 @@ class LeadFilterView(generics.ListAPIView):
         # 📅 Filtre échéance tâche (SANS JOIN)
         if p.get("task_due_from") or p.get("task_due_to"):
 
-            task_filters = {"lead": OuterRef("pk")}
+            # 🔥 On s'assure que le filtre de date s'applique aussi aux tâches de l'utilisateur
+            task_filters = {"lead": OuterRef("pk"), "assigned_to": user}
 
             if p.get("task_due_from"):
                 task_filters["due_at__date__gte"] = p.get("task_due_from")
@@ -123,6 +126,23 @@ class LeadFilterView(generics.ListAPIView):
                     )
                 )
             ).filter(contract_by_user=True)
+
+        # 💰 Filtre par montant du contrat
+        if p.get("contract_amount_min") or p.get("contract_amount_max"):
+            contract_amount_filters = {"client__lead": OuterRef("pk")}
+
+            # ⚠️ Remplacer "amount" par le vrai nom du champ (ex: "price", "total_ttc")
+            if p.get("contract_amount_min"):
+                contract_amount_filters["amount__gte"] = p.get("contract_amount_min")
+
+            if p.get("contract_amount_max"):
+                contract_amount_filters["amount__lte"] = p.get("contract_amount_max")
+
+            qs = qs.annotate(
+                has_matching_contract_amount=Exists(
+                    Contract.objects.filter(**contract_amount_filters)
+                )
+            ).filter(has_matching_contract_amount=True)
 
         return qs.order_by("-created_at")
 
@@ -177,16 +197,19 @@ class LeadFilterView(generics.ListAPIView):
         ]
 
         # 🔵 Totaux tâches (SANS JOIN)
+        # Déjà filtré par l'utilisateur connecté grâce au get_queryset()
         total_with_tasks = qs.filter(has_tasks=True).count()
 
         now = timezone.now()
 
+        # 🔥 On restreint aussi l'agrégat des tâches en retard à l'utilisateur connecté
         total_overdue_tasks = qs.annotate(
             has_overdue_tasks=Exists(
                 LeadTask.objects.filter(
                     lead=OuterRef("pk"),
                     completed_at__isnull=True,
                     due_at__lt=now,
+                    assigned_to=request.user
                 )
             )
         ).filter(has_overdue_tasks=True).count()
