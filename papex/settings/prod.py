@@ -363,24 +363,30 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_PREFETCH_MULTIPLIER", 
 
 CELERY_BEAT_SCHEDULE = {
     "process-appointment-reminders": {
-        "task": "api.leads.tasks.process_appointment_reminders",  # 👈 Plus de .appointments
+        "task": "api.leads.tasks.process_appointment_reminders",
         "schedule": crontab(minute="*/30"),
         "options": {"queue": "scheduler", "expires": 300}
     },
     "mark-leads-absent": {
-        "task": "api.leads.tasks.mark_absent_leads",  # 👈 Plus de .appointments
+        "task": "api.leads.tasks.mark_absent_leads",
         "schedule": crontab(minute="*/30"),
         "options": {"queue": "scheduler", "expires": 300}
     },
     "process-absent-leads-followup": {
-        "task": "api.leads.tasks.process_absent_leads_followup",  # 👈 Plus de .appointments
+        "task": "api.leads.tasks.process_absent_leads_followup",
         "schedule": crontab(hour=10, minute=0),
         "options": {"queue": "scheduler", "expires": 3600}
+    },
+    "send-payment-due-reminders": {
+        "task": "api.payments.tasks.send_payment_due_reminders",
+        "schedule": crontab(hour=9, minute=0),
+        "options": {"queue": "emails", "expires": 3600}
     },
 }
 
 CELERY_IMPORTS = (
-    "api.leads.tasks",  # 👈 Plus de .appointments
+    "api.leads.tasks",
+    "api.payments.tasks",
     "api.sms.tasks",
     "api.utils.email",
 )
@@ -407,8 +413,8 @@ worker_cancel_long_running_tasks_on_connection_loss = (
 )
 
 CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", str(30 * 60)))
-CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", str(25 * 60)))
+CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", str(5 * 60)))      # 5 min
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", str(4 * 60)))  # 4 min
 CELERY_RESULT_EXPIRES = int(os.getenv("CELERY_RESULT_EXPIRES", "3600"))
 
 # -----------------------------------------------------------------------------

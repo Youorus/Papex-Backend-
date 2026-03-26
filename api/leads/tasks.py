@@ -16,7 +16,7 @@ from api.leads.models import Lead
 from api.leads.constants import RDV_CONFIRME, ABSENT, RDV_A_CONFIRMER
 from api.lead_status.models import LeadStatus
 from api.leads_events.models import LeadEvent
-
+from api.leads_task.tasks import create_absent_followup_task
 from api.sms.notifications.leads import send_confirm_presence_sms
 from api.sms.tasks import (
     send_appointment_reminder_sms_task,
@@ -105,10 +105,6 @@ def _send_reminder_if_needed(lead, reminder_type: str):
 
 @shared_task
 def mark_absent_leads():
-    """
-    Marque les leads comme ABSENT si leur RDV confirmé est passé.
-    Exécution : Toutes les 30 minutes via Celery Beat.
-    """
     now = timezone.now()
 
     try:
@@ -117,7 +113,6 @@ def mark_absent_leads():
         logger.error("[appointments] Statut ABSENT introuvable en base")
         return
 
-    # ⚡️ OPTIMISATION RENDER : .iterator(chunk_size=100) évite l'erreur OOM
     leads = Lead.objects.filter(
         status__code=RDV_CONFIRME,
         appointment_date__lt=now,
@@ -135,8 +130,8 @@ def mark_absent_leads():
             lead.id, lead.appointment_date,
         )
 
-        # LOG STATUS_CHANGED → déclenche l'envoi du SMS urgence absence
-        LeadEvent.log(
+        # 🔥 Event principal
+        event = LeadEvent.log(
             lead=lead,
             event_code="STATUS_CHANGED",
             data={
@@ -149,6 +144,12 @@ def mark_absent_leads():
             lead=lead,
             event_code="APPOINTMENT_MISSED",
             data={"appointment_date": lead.appointment_date.isoformat()},
+        )
+
+        # 🔥 Déclenchement automatique de la task
+        create_absent_followup_task.delay(
+            lead_id=lead.id,
+            triggered_event_id=event.id
         )
 
 

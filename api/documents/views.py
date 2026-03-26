@@ -27,10 +27,6 @@ def _slugify(value: str) -> str:
 
 
 def _build_filename(client, document_type, original_name: str, index: int = 0) -> str:
-    """
-    Construit un nom de fichier lisible :
-      {prenom_nom|entreprise}_{type_document}[_{index}].{ext}
-    """
     ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else "bin"
 
     client_parts = []
@@ -51,7 +47,6 @@ def _build_filename(client, document_type, original_name: str, index: int = 0) -
 
 
 def _extract_s3_key(url: str) -> str:
-    """Extrait la clé S3 depuis l'URL stockée en base (sans le bucket)."""
     from urllib.parse import unquote, urlparse
     parsed = urlparse(url)
     path   = unquote(parsed.path).lstrip("/")
@@ -73,23 +68,24 @@ class DocumentViewSet(viewsets.ModelViewSet):
     """
     CRUD complet des documents client + actions custom :
 
-      GET    /documents/                        → liste (filtre ?client= ?document_type=)
-      POST   /documents/                        → upload multi-fichiers
-      GET    /documents/{id}/                   → détail
-      PUT    /documents/{id}/                   → remplacement (fichier + métadonnées, nettoie S3)
-      PATCH  /documents/{id}/                   → mise à jour partielle (idem)
-      DELETE /documents/{id}/                   → suppression unitaire DB + S3
-      GET    /documents/{id}/download/          → stream proxié depuis S3 (nom propre)
-      DELETE /documents/bulk-delete/            → suppression multiple DB + S3
-      GET    /documents/bulk-download/          → ZIP de plusieurs documents (?ids=1,2,3)
+      GET    /documents/                   → liste (?client= ?document_type=)
+      POST   /documents/                   → upload multi-fichiers
+      GET    /documents/{id}/              → détail
+      PUT    /documents/{id}/              → remplacement (nettoie S3)
+      PATCH  /documents/{id}/              → mise à jour partielle
+      DELETE /documents/{id}/              → suppression unitaire DB + S3
+      GET    /documents/{id}/download/     → URL signée attachment (téléchargement)
+      GET    /documents/{id}/preview/      → URL signée inline (visualiseur)
+      DELETE /documents/bulk-delete/       → suppression multiple DB + S3
+      GET    /documents/bulk-download/     → ZIP (?ids=1,2,3)
     """
 
-    queryset         = Document.objects.select_related("client", "document_type")
-    serializer_class = DocumentSerializer
+    queryset           = Document.objects.select_related("client", "document_type")
+    serializer_class   = DocumentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs               = super().get_queryset()
         client_id        = self.request.query_params.get("client")
         document_type_id = self.request.query_params.get("document_type")
         if client_id:
@@ -130,8 +126,6 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
         documents = []
         for index, file in enumerate(files):
-            # _build_filename génère le nom définitif — store_client_document
-            # doit l'utiliser tel quel, sans re-slugifier.
             filename = _build_filename(client, document_type, file.name, index)
             url      = store_client_document(client, file, filename)
             doc      = Document.objects.create(
@@ -151,7 +145,6 @@ class DocumentViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         old_url  = instance.url
 
-        # Si un nouveau fichier est fourni, on l'upload d'abord
         new_file = request.FILES.get("file")
         if new_file:
             document_type = instance.document_type
@@ -163,13 +156,12 @@ class DocumentViewSet(viewsets.ModelViewSet):
                 except DocumentType.DoesNotExist:
                     pass
 
-            filename    = _build_filename(instance.client, document_type, new_file.name)
-            new_url     = store_client_document(instance.client, new_file, filename)
-            request.data["url"] = new_url  # injecte la nouvelle URL dans les data
+            filename            = _build_filename(instance.client, document_type, new_file.name)
+            new_url             = store_client_document(instance.client, new_file, filename)
+            request.data["url"] = new_url
 
         response = super().update(request, *args, **kwargs)
 
-        # Supprime l'ancien fichier S3 si un nouveau a été uploadé
         if new_file and old_url:
             try:
                 _delete_from_bucket(old_url)
@@ -184,56 +176,77 @@ class DocumentViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         file_url = instance.url
-
         if file_url:
             try:
                 _delete_from_bucket(file_url)
             except Exception as e:
                 print(f"Erreur suppression document du storage : {e}")
-
         return super().destroy(request, *args, **kwargs)
 
     # ──────────────────────────────────────────────
-    # ACTION : téléchargement proxié unitaire
+    # Helper commun : extraire clé S3 + nom de fichier propre
+    # ──────────────────────────────────────────────
+    def _resolve_doc_key(self, doc):
+        from urllib.parse import unquote, urlparse
+        parsed   = urlparse(doc.url)
+        path     = unquote(parsed.path).lstrip("/")
+        parts    = path.split("/")
+        key      = "/".join(parts[1:]) if len(parts) > 1 else parts[0]
+        filename = key.split("/")[-1]
+        return key, filename
+
+    # ──────────────────────────────────────────────
+    # ACTION : URL signée ATTACHMENT (téléchargement forcé)
     # ──────────────────────────────────────────────
     @action(detail=True, methods=["get"], url_path="download")
     def download(self, request, pk=None):
         """
-        Streame le fichier S3 vers le client :
-          - Content-Disposition: attachment  (force le téléchargement)
-          - Nom de fichier propre : {client}_{type}.{ext}
-          - L'URL pré-signée S3 n'est jamais exposée au navigateur
+        GET /documents/{id}/download/
+        Retourne { url, filename } avec Content-Disposition: attachment.
+        Le navigateur télécharge le fichier sans l'ouvrir.
         """
         doc = self.get_object()
-
         if not doc.url:
-            return Response({"detail": "Aucun fichier associé"}, status=404)
+            return Response({"detail": "Aucun fichier"}, status=404)
 
-        from urllib.parse import unquote, urlparse
-        original_name = unquote(urlparse(doc.url).path).split("/")[-1]
-        filename      = _build_filename(doc.client, doc.document_type, original_name)
+        from api.utils.cloud.scw.bucket_utils import generate_presigned_url
 
-        try:
-            s3_response = requests.get(doc.url, stream=True, timeout=30)
-            s3_response.raise_for_status()
-        except requests.RequestException as e:
-            return Response({"detail": f"Erreur récupération fichier : {e}"}, status=502)
+        key, filename = self._resolve_doc_key(doc)
 
-        content_type = s3_response.headers.get("Content-Type", "application/octet-stream")
-
-        response = StreamingHttpResponse(
-            s3_response.iter_content(chunk_size=8192),
-            content_type=content_type,
+        signed_url = generate_presigned_url(
+            "documents",
+            key,
+            expires_in=900,           # 15 min
+            disposition="attachment",
+            filename=filename,
         )
-        response["Content-Disposition"] = (
-            f'attachment; filename="{filename.encode("utf-8").decode("ascii", errors="replace")}"; '
-            f"filename*=UTF-8''{requests.utils.quote(filename)}"
-        )
-        content_length = s3_response.headers.get("Content-Length")
-        if content_length:
-            response["Content-Length"] = content_length
+        return Response({"url": signed_url, "filename": filename})
 
-        return response
+    # ──────────────────────────────────────────────
+    # ACTION : URL signée INLINE (visualiseur)
+    # ──────────────────────────────────────────────
+    @action(detail=True, methods=["get"], url_path="preview")
+    def preview(self, request, pk=None):
+        """
+        GET /documents/{id}/preview/
+        Retourne { url, filename } avec Content-Disposition: inline.
+        Utilisée par le viewer natif (iframe, img, video…).
+        """
+        doc = self.get_object()
+        if not doc.url:
+            return Response({"detail": "Aucun fichier"}, status=404)
+
+        from api.utils.cloud.scw.bucket_utils import generate_presigned_url
+
+        key, filename = self._resolve_doc_key(doc)
+
+        signed_url = generate_presigned_url(
+            "documents",
+            key,
+            expires_in=3600,          # 1h pour laisser le temps de lire
+            disposition="inline",
+        )
+        return Response({"url": signed_url, "filename": filename})
 
     # ──────────────────────────────────────────────
     # ACTION : suppression multiple DB + S3
@@ -243,8 +256,6 @@ class DocumentViewSet(viewsets.ModelViewSet):
         """
         DELETE /documents/bulk-delete/
         Body JSON : { "ids": [1, 2, 3] }
-        Supprime chaque document en DB et son fichier dans le bucket.
-        Retourne 204 si tout OK, 207 si erreurs S3 partielles.
         """
         ids = request.data.get("ids", [])
         if not ids:
@@ -277,7 +288,6 @@ class DocumentViewSet(viewsets.ModelViewSet):
         """
         GET /documents/bulk-download/?ids=1,2,3
         Retourne un fichier ZIP contenant tous les documents demandés.
-        Les noms de fichiers dans le ZIP sont propres et sans collision.
         """
         ids_param = request.query_params.get("ids", "")
         ids       = [i for i in ids_param.split(",") if i.strip().isdigit()]
@@ -303,7 +313,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
                 original_name = unquote(urlparse(doc.url).path).split("/")[-1]
                 filename      = _build_filename(doc.client, doc.document_type, original_name)
 
-                # Anti-collision : ajoute un suffixe si le nom existe déjà dans le ZIP
+                # Anti-collision
                 count = seen_names.get(filename, 0)
                 seen_names[filename] = count + 1
                 if count:
@@ -315,7 +325,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
                     s3_resp.raise_for_status()
                     zf.writestr(filename, s3_resp.content)
                 except requests.RequestException:
-                    pass  # Fichier inaccessible ignoré silencieusement
+                    pass
 
         buffer.seek(0)
         response = StreamingHttpResponse(buffer, content_type="application/zip")
