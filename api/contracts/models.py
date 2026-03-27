@@ -171,7 +171,7 @@ class Contract(models.Model):
         print(f"🧾 Génération facture PDF pour contrat #{self.pk}...")
         try:
             pdf_bytes = generate_invoice_pdf(self)
-            invoice_ref = f"TDS-{self.id:06d}"  # Même référence que dans le template
+            invoice_ref = f"PAPEX-{self.id:06d}"  # Même référence que dans le template
             invoice_url = store_invoice_pdf(self, pdf_bytes, invoice_ref)
             if invoice_url:
                 self.invoice_url = invoice_url

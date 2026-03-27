@@ -310,9 +310,7 @@ DATABASES["default"].update(
 # -----------------------------------------------------------------------------
 # REDIS (shared for Channels + Celery)
 # -----------------------------------------------------------------------------
-REDIS_URL = os.getenv("REDIS_URL")
-if not REDIS_URL:
-    raise RuntimeError("REDIS_URL is required in production.")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0") # 👈 Ajout d'un fallback par défaut
 
 USE_UPSTASH = "upstash.io" in REDIS_URL
 IS_REDIS_SSL = REDIS_URL.startswith("rediss://")
