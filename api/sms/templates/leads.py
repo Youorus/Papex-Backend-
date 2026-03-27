@@ -1,15 +1,14 @@
 # api/sms/templates/leads.py
 
+import random
+
 from api.sms.constants import COMPANY_NAME, COMPANY_ADDRESS_SHORT, COMPANY_PHONE, ACCESS_CODE
-from api.sms.utils import (
-    get_lead_display_name,
-    get_service_sms_label,
-)
+from api.sms.utils import get_lead_display_name
 from api.sms.utils_datetime import get_french_datetime_strings_sms
 
 
 # ----------------------------------------------------------------
-# Helpers internes
+# Helpers
 # ----------------------------------------------------------------
 
 def _name_line(lead) -> str:
@@ -17,9 +16,16 @@ def _name_line(lead) -> str:
     return f"{name},\n" if name else ""
 
 
-def _service_line(lead) -> str:
-    label = get_service_sms_label(lead)
-    return f"Dossier : {label}\n" if label else ""
+def _progress_message() -> str:
+    """
+    🔥 Messages motivants (variation humaine)
+    """
+    return random.choice([
+        "Bonne nouvelle : votre dossier avance bien.",
+        "Votre dossier progresse positivement.",
+        "Nous avançons activement sur votre dossier.",
+        "Votre dossier suit une évolution favorable.",
+    ])
 
 
 # ================================================================
@@ -32,9 +38,9 @@ def tpl_appointment_confirmation(lead) -> str:
     return (
         f"{COMPANY_NAME}\n"
         f"{_name_line(lead)}"
-        f"Votre rendez-vous est confirme.\n"
-        f"Le {date_str} a {time_str}\n"
-        f"Code acces : {ACCESS_CODE}\n"
+        f"Votre rendez-vous est bien confirmé.\n"
+        f"{date_str} à {time_str}\n"
+        f"Code accès : {ACCESS_CODE}\n"
         f"{COMPANY_ADDRESS_SHORT}"
     )
 
@@ -49,27 +55,24 @@ def tpl_appointment_reminder(lead) -> str:
     return (
         f"{COMPANY_NAME}\n"
         f"{_name_line(lead)}"
-        f"{_service_line(lead)}"
-        f"Rappel : votre rendez-vous est demain.\n"
-        f"Le {date_str} a {time_str}\n"
+        f"Rappel : votre rendez-vous approche.\n"
+        f"{date_str} à {time_str}\n"
+        f"Nous sommes prêts à vous accompagner.\n"
         f"{COMPANY_ADDRESS_SHORT}"
     )
 
 
 # ================================================================
-# 3. MISE A JOUR DOSSIER (ULTRA MOTIVANT)
+# 3. STATUT DOSSIER (🔥 MOTIVANT GLOBAL)
 # ================================================================
 
 def tpl_dossier_status_updated(lead) -> str:
-    status_label = lead.statut_dossier.label if lead.statut_dossier else "en cours"
-
     return (
         f"{COMPANY_NAME}\n"
         f"{_name_line(lead)}"
-        f"Bonne nouvelle.\n"
-        f"Votre dossier progresse positivement.\n"
-        f"Statut : {status_label}\n"
-        f"Nous continuons les demarches pour vous."
+        f"{_progress_message()}\n"
+        f"Notre équipe reste mobilisée pour vous.\n"
+        f"Besoin d’un point ? {COMPANY_PHONE}"
     )
 
 
@@ -79,15 +82,13 @@ def tpl_dossier_status_updated(lead) -> str:
 
 def tpl_absent_urgency(lead) -> str:
     name = get_lead_display_name(lead)
-    service = get_service_sms_label(lead)
-
     name_part = f"{name}, " if name else ""
 
     return (
         f"{COMPANY_NAME}\n"
-        f"{name_part}nous vous attendions aujourd'hui\n"
-        f"pour votre dossier {service}.\n"
-        f"Contactez-nous rapidement : {COMPANY_PHONE}"
+        f"{name_part}nous vous attendions aujourd’hui.\n"
+        f"Votre situation peut être traitée rapidement.\n"
+        f"Contactez-nous sans attendre : {COMPANY_PHONE}"
     )
 
 
@@ -97,28 +98,26 @@ def tpl_absent_urgency(lead) -> str:
 
 def tpl_absent_followup(lead, week: int = 1) -> str:
     name = get_lead_display_name(lead)
-    service = get_service_sms_label(lead)
-
     name_part = f"{name}, " if name else ""
 
     if week == 1:
         body = (
-            f"votre dossier {service} est en attente.\n"
-            f"Nous pouvons le finaliser rapidement.\n"
-            f"Appelez-nous : {COMPANY_PHONE}"
+            "votre dossier avance mais reste en attente.\n"
+            f"Nous pouvons accélérer les choses.\n"
+            f"{COMPANY_PHONE}"
         )
 
     elif week == 2:
         body = (
-            f"votre dossier {service} est toujours bloque.\n"
-            f"Sans votre retour, il ne peut avancer.\n"
-            f"Contactez-nous : {COMPANY_PHONE}"
+            "votre dossier peut encore progresser.\n"
+            "Une action de votre part peut tout débloquer.\n"
+            f"{COMPANY_PHONE}"
         )
 
     else:
         body = (
-            f"dernier rappel pour votre dossier {service}.\n"
-            f"Sans reponse, il sera classe.\n"
+            "nous avons fait le maximum pour vous.\n"
+            "Contactez-nous pour finaliser votre dossier.\n"
             f"{COMPANY_PHONE}"
         )
 
@@ -126,45 +125,41 @@ def tpl_absent_followup(lead, week: int = 1) -> str:
 
 
 # ================================================================
-# 6. PRESENT SANS CONTRAT (CONVERSION)
+# 6. PRESENT SANS CONTRAT
 # ================================================================
 
 def tpl_present_no_contract(lead) -> str:
     name = get_lead_display_name(lead)
-    service = get_service_sms_label(lead)
-
     name_part = f"{name}, " if name else ""
 
     return (
         f"{COMPANY_NAME}\n"
-        f"{name_part}merci pour votre visite.\n"
-        f"Votre projet {service} est pret a avancer.\n"
-        f"Nous restons disponibles pour vous accompagner.\n"
+        f"{name_part}merci pour votre venue.\n"
+        f"Votre projet est prêt à avancer.\n"
+        f"Nous restons à vos côtés pour la suite.\n"
         f"Avis : g.page/papiers-express"
     )
 
 
 # ================================================================
-# 7. CONTRAT SIGNE (FIDELISATION)
+# 7. CONTRAT SIGNE
 # ================================================================
 
 def tpl_contract_signed(lead) -> str:
     name = get_lead_display_name(lead)
-    service = get_service_sms_label(lead)
-
     name_part = f"{name}, " if name else ""
 
     return (
         f"{COMPANY_NAME}\n"
-        f"{name_part}felicitations.\n"
-        f"Votre dossier {service} est lance.\n"
-        f"Nous suivons chaque etape pour vous.\n"
-        f"Vous serez informe regulierement."
+        f"{name_part}félicitations.\n"
+        f"Votre dossier est lancé.\n"
+        f"Nous suivons chaque étape avec attention.\n"
+        f"Vous serez informé régulièrement."
     )
 
 
 # ================================================================
-# 8. DEMANDE CONFIRMATION PRESENCE
+# 8. CONFIRMATION PRESENCE
 # ================================================================
 
 def tpl_confirm_presence(lead) -> str:
@@ -173,8 +168,7 @@ def tpl_confirm_presence(lead) -> str:
     return (
         f"{COMPANY_NAME}\n"
         f"{_name_line(lead)}"
-        f"{_service_line(lead)}"
-        f"Merci de confirmer votre presence\n"
-        f"au rendez-vous du {date_str} a {time_str}\n"
+        f"Merci de confirmer votre présence\n"
+        f"au rendez-vous du {date_str} à {time_str}\n"
         f"en appelant : {COMPANY_PHONE}"
     )

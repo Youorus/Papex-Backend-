@@ -103,6 +103,11 @@ class Lead(models.Model):
         verbose_name=_("assignés à"),
     )
 
+    is_eligible = models.BooleanField(
+        default=False,
+        verbose_name=_("éligible"),
+    )
+
     jurist_assigned = models.ManyToManyField(
         "users.User",
         blank=True,

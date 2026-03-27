@@ -161,6 +161,8 @@ class LeadSerializer(serializers.ModelSerializer):
         required=False,
     )
 
+    is_eligible = serializers.BooleanField(required=False)
+
     contract_emitter_id = serializers.SerializerMethodField()
 
     # =====================
@@ -181,6 +183,7 @@ class LeadSerializer(serializers.ModelSerializer):
             "appointment_type_display",
             "appointment_date",
 
+            "is_eligible",
             "last_reminder_sent",
             "created_at",
 

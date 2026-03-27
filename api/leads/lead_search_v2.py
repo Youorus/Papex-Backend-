@@ -1,14 +1,6 @@
 """
 api/leads/lead_search_v2.py
-
-Endpoint de recherche v2 — intelligent.
-
-Améliorations vs v1 :
-    ✔ Gestion des espaces : "Jean Dupont" → cherche "Jean" ET "Dupont" séparément
-    ✔ Scoring de pertinence : correspondance exacte > début de mot > contenu
-    ✔ Résultats triés par score décroissant
-
-URL : GET /api/v2/leads/search/v2/?q=jean+dupont&page=1
+Recherche Globale : Permet de trouver tout lead par son nom, email ou téléphone.
 """
 
 from rest_framework import generics, filters, permissions
@@ -26,39 +18,22 @@ class LeadSearchViewV2(generics.ListAPIView):
     filter_backends = [filters.OrderingFilter]
 
     def get_queryset(self):
-
         q = self.request.query_params.get("q", "").strip()
 
+        # ── 0. Base Globale (On ne filtre pas par jurist_assigned ici) ────────
         base_qs = (
             Lead.objects
-            .select_related(
-                "status",
-                "statut_dossier",
-                "statut_dossier_interne",
-            )
-            .prefetch_related(
-                "assigned_to",
-                "jurist_assigned",
-            )
+            .select_related("status", "statut_dossier", "statut_dossier_interne")
+            .prefetch_related("assigned_to", "jurist_assigned")
         )
 
         if not q:
             return base_qs.order_by("-created_at")
 
-        # ── 1. Découper la query en tokens (gestion des espaces) ──────────────
-        #
-        # "Jean Dupont" → ["jean", "dupont"]
-        # "0612"        → ["0612"]
-        # "jean  "      → ["jean"]  (strip + filter vides)
-        #
+        # ── 1. Tokens ──────────────
         tokens = [t.lower() for t in q.split() if t.strip()]
 
-        # ── 2. Filtre : un lead doit matcher TOUS les tokens ──────────────────
-        #
-        # Pour chaque token, au moins un champ doit contenir ce token.
-        # "Jean Dupont" → first_name|last_name|email|phone contient "jean"
-        #              ET first_name|last_name|email|phone contient "dupont"
-        #
+        # ── 2. Filtre de recherche ──────────────
         combined_filter = Q()
         for token in tokens:
             token_filter = (
@@ -69,43 +44,15 @@ class LeadSearchViewV2(generics.ListAPIView):
             )
             combined_filter &= token_filter
 
-        filtered_qs = base_qs.filter(combined_filter)
-
-        # ── 3. Scoring de pertinence ──────────────────────────────────────────
-        #
-        # On annote chaque lead avec un score (plus bas = plus pertinent)
-        # pour trier les résultats du plus proche au moins proche.
-        #
-        # Niveaux (par ordre de priorité) :
-        #   1 — correspondance exacte sur nom ou prénom  (ex: q="dupont", last_name="Dupont")
-        #   2 — début de mot sur nom ou prénom           (ex: q="dup",    last_name="Dupont")
-        #   3 — correspondance exacte sur email/phone
-        #   4 — contenu partiel sur n'importe quel champ
-        #
-        # On score sur le premier token — pour "Jean Dupont", "jean" porte le score.
-        # Les deux tokens filtrent, mais le score porte sur le terme principal saisi.
-        #
+        # ── 3. Scoring de pertinence ──────────────
         main_token = tokens[0]
-
-        annotated_qs = filtered_qs.annotate(
+        return base_qs.filter(combined_filter).annotate(
             relevance=Case(
-                # Niveau 1 — exact sur nom/prénom
                 When(first_name__iexact=main_token, then=Value(1)),
                 When(last_name__iexact=main_token, then=Value(1)),
-
-                # Niveau 2 — commence par le token sur nom/prénom
-                When(first_name__istartswith=main_token, then=Value(2)),
-                When(last_name__istartswith=main_token, then=Value(2)),
-
-                # Niveau 3 — exact sur email ou téléphone
                 When(email__iexact=main_token, then=Value(3)),
                 When(phone__iexact=main_token, then=Value(3)),
-
-                # Niveau 4 — contenu partiel (fallback)
                 default=Value(4),
                 output_field=IntegerField(),
             )
-        )
-
-        # Tri : score ASC (meilleur en premier), puis date création DESC
-        return annotated_qs.order_by("relevance", "-created_at")
+        ).order_by("relevance", "-created_at")

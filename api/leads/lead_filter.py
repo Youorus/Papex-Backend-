@@ -1,5 +1,9 @@
 from rest_framework import generics, permissions
-from django.db.models import Q, Count, Exists, OuterRef
+from django.db.models import (
+    Count, Exists, OuterRef,
+    Case, When, F,
+    DateTimeField, IntegerField
+)
 from django.utils import timezone
 
 from api.core.pagination import CRMLeadPagination
@@ -14,9 +18,13 @@ class LeadFilterView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = CRMLeadPagination
 
+    # ==========================
+    # QUERYSET GLOBAL (NON RESTREINT)
+    # ==========================
+
     def get_queryset(self):
         p = self.request.query_params
-        user = self.request.user  # 👤 On récupère l'utilisateur connecté
+        user = self.request.user
 
         qs = (
             Lead.objects
@@ -28,9 +36,9 @@ class LeadFilterView(generics.ListAPIView):
             .prefetch_related("assigned_to")
         )
 
-        # ───────────────────────
-        # 📅 Dates
-        # ───────────────────────
+        # ==========================
+        # 📅 DATES
+        # ==========================
 
         if p.get("created_from"):
             qs = qs.filter(created_at__date__gte=p.get("created_from"))
@@ -44,9 +52,9 @@ class LeadFilterView(generics.ListAPIView):
         if p.get("appointment_to"):
             qs = qs.filter(appointment_date__date__lte=p.get("appointment_to"))
 
-        # ───────────────────────
-        # 📌 Champs simples
-        # ───────────────────────
+        # ==========================
+        # 📌 CHAMPS SIMPLES
+        # ==========================
 
         if p.get("appointment_type"):
             qs = qs.filter(appointment_type=p.get("appointment_type"))
@@ -57,62 +65,65 @@ class LeadFilterView(generics.ListAPIView):
         if p.get("dossier_status"):
             qs = qs.filter(statut_dossier_id=p.get("dossier_status"))
 
-        if p.get("assigned_to"):
-            qs = qs.filter(assigned_to__id=p.get("assigned_to"))
+        if p.getlist("assigned_to"):
+            qs = qs.filter(assigned_to__id__in=p.getlist("assigned_to")).distinct()
 
-        # ───────────────────────
-        # 🧠 EXISTS (CRUCIAL)
-        # ───────────────────────
+        # ==========================
+        # 🧠 EXISTS (TASKS / CONTRACTS)
+        # ==========================
 
         qs = qs.annotate(
             has_tasks=Exists(
-                # 🔥 On filtre les tâches assignées à l'utilisateur connecté
-                LeadTask.objects.filter(lead=OuterRef("pk"), assigned_to=user)
+                LeadTask.objects.filter(
+                    lead=OuterRef("pk"),
+                    assigned_to=user  # logique métier (mes tâches)
+                )
             ),
             has_contract=Exists(
                 Contract.objects.filter(client__lead=OuterRef("pk"))
             ),
         )
 
-        # ───────────────────────
-        # ✅ Filtre tâches (clean)
-        # ───────────────────────
+        # ==========================
+        # ✅ FILTRE TÂCHES
+        # ==========================
+        # ==========================
+        # 🧠 TASK FILTER GLOBAL
+        # ==========================
 
+        task_due_from = p.get("task_due_from")
+        task_due_to = p.get("task_due_to")
         has_tasks = p.get("has_tasks")
 
-        if has_tasks == "true":
-            qs = qs.filter(has_tasks=True)
+        task_qs = LeadTask.objects.filter(
+            lead=OuterRef("pk"),
+            assigned_to=user
+        )
+
+        if task_due_from:
+            task_qs = task_qs.filter(due_at__date__gte=task_due_from)
+
+        if task_due_to:
+            task_qs = task_qs.filter(due_at__date__lte=task_due_to)
+
+        qs = qs.annotate(
+            has_tasks_filtered=Exists(task_qs)
+        )
+
+        if has_tasks == "true" or task_due_from or task_due_to:
+            qs = qs.filter(has_tasks_filtered=True)
 
         elif has_tasks == "false":
-            qs = qs.filter(has_tasks=False)
+            qs = qs.filter(has_tasks_filtered=False)
 
-        # 📅 Filtre échéance tâche (SANS JOIN)
-        if p.get("task_due_from") or p.get("task_due_to"):
-
-            # 🔥 On s'assure que le filtre de date s'applique aussi aux tâches de l'utilisateur
-            task_filters = {"lead": OuterRef("pk"), "assigned_to": user}
-
-            if p.get("task_due_from"):
-                task_filters["due_at__date__gte"] = p.get("task_due_from")
-
-            if p.get("task_due_to"):
-                task_filters["due_at__date__lte"] = p.get("task_due_to")
-
-            qs = qs.annotate(
-                has_filtered_tasks=Exists(
-                    LeadTask.objects.filter(**task_filters)
-                )
-            ).filter(has_filtered_tasks=True)
-
-        # ───────────────────────
-        # 📄 Filtre contrats
-        # ───────────────────────
+        # ==========================
+        # 📄 CONTRATS
+        # ==========================
 
         has_contract = p.get("has_contract")
 
         if has_contract == "true":
             qs = qs.filter(has_contract=True)
-
         elif has_contract == "false":
             qs = qs.filter(has_contract=False)
 
@@ -127,28 +138,49 @@ class LeadFilterView(generics.ListAPIView):
                 )
             ).filter(contract_by_user=True)
 
-        # 💰 Filtre par montant du contrat
+        # 💰 Filtre montant contrat
         if p.get("contract_amount_min") or p.get("contract_amount_max"):
-            contract_amount_filters = {"client__lead": OuterRef("pk")}
 
-            # ⚠️ Remplacer "amount" par le vrai nom du champ (ex: "price", "total_ttc")
+            contract_filters = {"client__lead": OuterRef("pk")}
+
             if p.get("contract_amount_min"):
-                contract_amount_filters["amount__gte"] = p.get("contract_amount_min")
+                contract_filters["amount__gte"] = p.get("contract_amount_min")
 
             if p.get("contract_amount_max"):
-                contract_amount_filters["amount__lte"] = p.get("contract_amount_max")
+                contract_filters["amount__lte"] = p.get("contract_amount_max")
 
             qs = qs.annotate(
                 has_matching_contract_amount=Exists(
-                    Contract.objects.filter(**contract_amount_filters)
+                    Contract.objects.filter(**contract_filters)
                 )
             ).filter(has_matching_contract_amount=True)
 
-        return qs.order_by("-created_at")
+        # ==========================
+        # 🧠 TRI INTELLIGENT CRM
+        # ==========================
 
-    # ───────────────────────
+        qs = qs.annotate(
+            has_appointment=Case(
+                When(appointment_date__isnull=False, then=0),
+                default=1,
+                output_field=IntegerField(),
+            ),
+            sort_date=Case(
+                When(appointment_date__isnull=False, then=F("appointment_date")),
+                default=F("created_at"),
+                output_field=DateTimeField(),
+            )
+        ).order_by(
+            "has_appointment",   # RDV en premier
+            "sort_date",         # chronologique
+            "-created_at"        # fallback
+        )
+
+        return qs
+
+    # ==========================
     # 📊 LIST + AGGREGATES
-    # ───────────────────────
+    # ==========================
 
     def list(self, request, *args, **kwargs):
         qs = self.get_queryset()
@@ -158,11 +190,10 @@ class LeadFilterView(generics.ListAPIView):
 
         response = self.get_paginated_response(serializer.data)
 
-        # ───────────────────────
-        # 📊 Aggregates
-        # ───────────────────────
+        # ==========================
+        # 📊 AGGREGATES
+        # ==========================
 
-        # 🟢 Par statut
         by_status = list(
             qs.values("status__id", "status__label", "status__color")
             .annotate(count=Count("id"))
@@ -179,7 +210,6 @@ class LeadFilterView(generics.ListAPIView):
             for row in by_status
         ]
 
-        # 🟣 Par type de RDV
         by_appointment_type = list(
             qs.exclude(appointment_type__isnull=True)
             .exclude(appointment_type="")
@@ -196,13 +226,10 @@ class LeadFilterView(generics.ListAPIView):
             for row in by_appointment_type
         ]
 
-        # 🔵 Totaux tâches (SANS JOIN)
-        # Déjà filtré par l'utilisateur connecté grâce au get_queryset()
         total_with_tasks = qs.filter(has_tasks=True).count()
 
         now = timezone.now()
 
-        # 🔥 On restreint aussi l'agrégat des tâches en retard à l'utilisateur connecté
         total_overdue_tasks = qs.annotate(
             has_overdue_tasks=Exists(
                 LeadTask.objects.filter(

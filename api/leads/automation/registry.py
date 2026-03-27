@@ -1,7 +1,6 @@
 # api/automations/registry.py
 
 from .handlers.lead_created import handle_lead_created
-from .handlers.status_changed import handle_status_changed
 
 # CONTRACTS
 from .handlers.contract_signed import handle_contract_signed
@@ -12,6 +11,7 @@ from .handlers.receipt_sent import handle_receipts_email_sent
 
 # DOSSIER
 from .handlers.dossier_status_changed import handle_dossier_status_changed
+from .handlers.status_changed import handle_status_changed
 
 # RECEIPTS
 
