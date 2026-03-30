@@ -287,7 +287,7 @@ CSRF_TRUSTED_ORIGINS = [
 DATABASES = {
     "default": dj_database_url.config(
         default=os.getenv("DATABASE_URL"),
-        conn_max_age=0,
+        conn_max_age=60,
         ssl_require=True,
         engine="django.db.backends.postgresql",
     )
@@ -295,14 +295,14 @@ DATABASES = {
 
 DATABASES["default"]["OPTIONS"] = {
     "sslmode": "require",
-    "connect_timeout": 5,
+    "connect_timeout": 15,
     "client_encoding": "UTF8",
 }
 
 DATABASES["default"].update(
     {
         "ATOMIC_REQUESTS": False,
-        "CONN_HEALTH_CHECKS": False,
+        "CONN_HEALTH_CHECKS": True,
         "DISABLE_SERVER_SIDE_CURSORS": True,
     }
 )
