@@ -1,3 +1,2 @@
-from .celery import app as celery_app
-
-__all__ = ("celery_app",)
+# Migration Celery → Django-Q2
+# Ce fichier était utilisé pour initialiser Celery — plus nécessaire.
