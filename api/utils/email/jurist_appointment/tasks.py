@@ -54,7 +54,7 @@ def _run_send_jurist_appointment_deleted(lead_id: int, jurist_id: int, date_str:
 
 
 # ================================================================
-# API PUBLIQUE — dispatchers
+# API PUBLIQUE — dispatcrs
 # ================================================================
 
 def send_jurist_appointment_created_task(appointment_id: int):
