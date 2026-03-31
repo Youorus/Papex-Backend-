@@ -1,4 +1,5 @@
 # api/leads/views.py
+# ✅ Migré Celery (.delay()) → Django-Q2 (appels directs dispatchers)
 
 from django.db import transaction
 from django.db.models import F, Q
@@ -29,14 +30,6 @@ from api.utils.email.leads.tasks import (
 
 
 class LeadViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet principal pour la gestion des leads.
-
-    Règle métier :
-    👉 Lorsqu’un lead est créé, le rendez-vous est en statut RDV_A_CONFIRMER.
-    👉 La confirmation (RDV_CONFIRME) intervient plus tard dans le workflow.
-    """
-
     serializer_class = LeadSerializer
     permission_classes = [IsLeadCreator]
 
@@ -51,7 +44,7 @@ class LeadViewSet(viewsets.ModelViewSet):
             "assigned_to",
             "jurist_assigned",
         )
-        # 🔒 AVOCAT : uniquement ses leads
+
         if user.is_authenticated and user.role == UserRoles.AVOCAT:
             queryset = queryset.filter(assigned_to=user)
 
@@ -107,29 +100,21 @@ class LeadViewSet(viewsets.ModelViewSet):
         self._send_notifications(lead)
 
     def _get_default_status(self):
-        """
-        Statut par défaut à la création d’un lead :
-        👉 RDV_A_CONFIRMER
-        """
         try:
             return LeadStatus.objects.get(code=RDV_A_CONFIRMER)
         except LeadStatus.DoesNotExist:
             raise NotFound("Le statut RDV_A_CONFIRMER n'existe pas en base.")
 
     def _send_notifications(self, lead):
-        """
-        Notifications envoyées UNIQUEMENT quand le RDV est CONFIRMÉ.
-        """
         if getattr(lead.status, "code", None) != RDV_A_CONFIRMER:
             return
 
-        # 📧 Email
+        # ✅ Django-Q2 : appel direct (plus de .delay())
         if lead.email:
-            send_appointment_confirmation_task.delay(lead.id)
+            send_appointment_confirmation_task(lead.id)
 
-        # 📲 SMS
         if lead.phone:
-            send_appointment_confirmation_sms_task.delay(lead.id)
+            send_appointment_confirmation_sms_task(lead.id)
 
     def perform_update(self, serializer):
         before = self.get_object()
@@ -146,7 +131,8 @@ class LeadViewSet(viewsets.ModelViewSet):
             self._send_notifications(after)
 
         if dossier_changed and after.statut_dossier:
-            send_dossier_status_notification_task.delay(after.id)
+            # ✅ Django-Q2 : appel direct (plus de .delay())
+            send_dossier_status_notification_task(after.id)
 
     # =====================
     # ROUTES PERSONNALISÉES
@@ -159,12 +145,6 @@ class LeadViewSet(viewsets.ModelViewSet):
         permission_classes=[AllowAny],
     )
     def public_create(self, request):
-        """
-        Création publique d’un lead.
-
-        👉 Le RDV est créé avec le statut RDV_A_CONFIRMER.
-        👉 SlotQuota sécurisé en transaction.
-        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -202,31 +182,14 @@ class LeadViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="count-by-status")
     def count_by_status(self, request):
-        """
-        Retourne le nombre total de leads par statut clé
-        (utilisé pour le dashboard).
-        """
-
-        statuses = [
-            RDV_A_CONFIRMER,
-            A_RAPPELER,
-            RDV_CONFIRME,
-            ABSENT,
-        ]
-
-        # Récupération des statuts existants en base
+        statuses = [RDV_A_CONFIRMER, A_RAPPELER, RDV_CONFIRME, ABSENT]
         status_qs = LeadStatus.objects.filter(code__in=statuses)
-        status_map = {status.code: status for status in status_qs}
+        status_map = {s.code: s for s in status_qs}
 
-        # Comptage par statut
         data = {}
         for code in statuses:
             status_obj = status_map.get(code)
-            data[code] = (
-                Lead.objects.filter(status=status_obj).count()
-                if status_obj
-                else 0
-            )
+            data[code] = Lead.objects.filter(status=status_obj).count() if status_obj else 0
 
         return Response(data)
 
@@ -234,36 +197,23 @@ class LeadViewSet(viewsets.ModelViewSet):
     def rdv_by_date(self, request):
         date_str = request.query_params.get("date")
         if not date_str:
-            return Response(
-                {"detail": "Le paramètre 'date' est requis (YYYY-MM-DD)."},
-                status=400,
-            )
+            return Response({"detail": "Le paramètre 'date' est requis (YYYY-MM-DD)."}, status=400)
 
         parsed_date = parse_date(date_str)
         if not parsed_date:
-            return Response(
-                {"detail": "Format de date invalide."},
-                status=400,
-            )
+            return Response({"detail": "Format de date invalide."}, status=400)
 
         status = LeadStatus.objects.filter(code=RDV_CONFIRME).first()
         if not status:
-            return Response(
-                {"detail": "Le statut RDV_CONFIRME n'existe pas."},
-                status=500,
-            )
+            return Response({"detail": "Le statut RDV_CONFIRME n'existe pas."}, status=500)
 
         leads = (
-            Lead.objects.filter(
-                status=status,
-                appointment_date__date=parsed_date,
-            )
+            Lead.objects.filter(status=status, appointment_date__date=parsed_date)
             .order_by("appointment_date")
             .distinct()
         )
 
-        serializer = self.get_serializer(leads, many=True)
-        return Response(serializer.data)
+        return Response(self.get_serializer(leads, many=True).data)
 
     # =====================
     # ASSIGNATIONS
@@ -273,48 +223,24 @@ class LeadViewSet(viewsets.ModelViewSet):
     def assignment(self, request, pk=None):
         lead = self.get_object()
         user = request.user
-
         action_type = request.data.get("action")
         assign_ids = request.data.get("assign", [])
         unassign_ids = request.data.get("unassign", [])
 
-        # 🔐 Accès minimal autorisé
-        if user.role not in [
-            UserRoles.ADMIN,
-            UserRoles.CONSEILLER,
-            UserRoles.JURISTE,
-        ]:
+        if user.role not in [UserRoles.ADMIN, UserRoles.CONSEILLER, UserRoles.JURISTE]:
             raise PermissionDenied("Accès interdit.")
 
-        # =========================
-        # AUTO-ASSIGNATION
-        # =========================
         if action_type == "assign":
             lead.assigned_to.add(user)
-
         elif action_type == "unassign":
             lead.assigned_to.remove(user)
-
-        # =========================
-        # ADMIN — GESTION COMPLÈTE
-        # =========================
         elif user.role == UserRoles.ADMIN:
             if assign_ids:
-                users = User.objects.filter(
-                    id__in=assign_ids,
-                    is_active=True,
-                )
-                lead.assigned_to.add(*users)
-
+                lead.assigned_to.add(*User.objects.filter(id__in=assign_ids, is_active=True))
             if unassign_ids:
-                users = User.objects.filter(id__in=unassign_ids)
-                lead.assigned_to.remove(*users)
-
+                lead.assigned_to.remove(*User.objects.filter(id__in=unassign_ids))
         else:
-            return Response(
-                {"detail": "Action non autorisée."},
-                status=403,
-            )
+            return Response({"detail": "Action non autorisée."}, status=403)
 
         lead.save()
         return Response(self.get_serializer(lead).data)
@@ -322,13 +248,10 @@ class LeadViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["patch"], url_path="assign-juristes")
     def assign_juristes(self, request, pk=None):
         user = request.user
-
-        # 🔒 ADMIN UNIQUEMENT
         if user.role != UserRoles.ADMIN:
             raise PermissionDenied("Admin requis.")
 
         lead = self.get_object()
-
         assign_ids = request.data.get("assign", [])
         unassign_ids = request.data.get("unassign", [])
 
@@ -341,14 +264,11 @@ class LeadViewSet(viewsets.ModelViewSet):
             lead.jurist_assigned.add(*users)
 
             if lead.email and users.exists():
-                send_jurist_assigned_notification_task.delay(
-                    lead.id,
-                    users.first().id,
-                )
+                # ✅ Django-Q2 : appel direct (plus de .delay())
+                send_jurist_assigned_notification_task(lead.id, users.first().id)
 
         if unassign_ids:
-            users = User.objects.filter(id__in=unassign_ids)
-            lead.jurist_assigned.remove(*users)
+            lead.jurist_assigned.remove(*User.objects.filter(id__in=unassign_ids))
 
         lead.save()
         return Response(self.get_serializer(lead).data)
@@ -356,5 +276,6 @@ class LeadViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="send-formulaire-email")
     def send_formulaire_email(self, request, pk=None):
         lead = self.get_object()
-        send_formulaire_task.delay(lead.id)
+        # ✅ Django-Q2 : appel direct (plus de .delay())
+        send_formulaire_task(lead.id)
         return Response({"detail": "E-mail envoyé."}, status=200)

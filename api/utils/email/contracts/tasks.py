@@ -1,18 +1,20 @@
+# api/utils/email/contracts/tasks.py
+# ✅ Migré Celery → Django-Q2
+
 import logging
-from celery import shared_task
+
+from django_q.tasks import async_task
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(queue="emails")
-def send_contract_email_task(contract_id: int):
-    """
-    Tâche asynchrone pour envoyer un contrat par email au lead.
-    """
+# ================================================================
+# WORKER
+# ================================================================
+
+def _run_send_contract_email(contract_id: int):
     from api.contracts.models import Contract
-    from api.utils.email.contracts.notifications import (
-        send_contract_email_to_lead,
-    )
+    from api.utils.email.contracts.notifications import send_contract_email_to_lead
 
     contract = (
         Contract.objects
@@ -21,18 +23,21 @@ def send_contract_email_task(contract_id: int):
         .first()
     )
 
-    if (
-        contract
-        and contract.client
-        and contract.client.lead
-        and contract.client.lead.email
-    ):
+    if contract and contract.client and contract.client.lead and contract.client.lead.email:
         send_contract_email_to_lead(contract)
-        logger.info(
-            f"📩 Contrat #{contract.id} envoyé à "
-            f"{contract.client.lead.email}"
-        )
+        logger.info("📩 Contrat #%s envoyé à %s", contract.id, contract.client.lead.email)
     else:
-        logger.warning(
-            f"❌ Contrat #{contract_id} non envoyé — données incomplètes"
-        )
+        logger.warning("❌ Contrat #%s non envoyé — données incomplètes", contract_id)
+
+
+# ================================================================
+# API PUBLIQUE
+# ================================================================
+
+def send_contract_email_task(contract_id: int):
+    """Anciennement send_contract_email_task.delay(contract_id)"""
+    async_task(
+        "api.utils.email.contracts.tasks._run_send_contract_email",
+        contract_id,
+        group="emails",
+    )

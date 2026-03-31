@@ -1,4 +1,5 @@
 # api/leads/automation/handlers/status_changed.py
+# ✅ Migré de Celery (.delay / .apply_async) vers Django-Q2 (appels directs aux dispatchers)
 
 import logging
 
@@ -7,19 +8,17 @@ from api.leads.constants import (
     RDV_CONFIRME,
     ABSENT,
     PRESENT,
-    # CONTRAT_SIGNE,  # Décommenter quand créé en base
 )
 
 from api.sms.tasks import (
     send_appointment_confirmation_sms_task,
     send_absent_urgency_sms_task,
     send_present_no_contract_sms_task,
-    # send_contract_signed_sms_task,  # Décommenter quand prêt
 )
 
 logger = logging.getLogger(__name__)
 
-# Délai avant envoi des messages post-RDV (2 heures)
+# Délai avant envoi des messages post-RDV (2 heures en secondes)
 POST_RDV_DELAY = 60 * 60 * 2
 
 
@@ -38,68 +37,68 @@ def handle_status_changed(event):
     )
 
     # --------------------------------------------------
-    # 1. RDV_A_CONFIRMER (Report ou Nouveau RDV)
+    # 1. RDV_A_CONFIRMER
     # --------------------------------------------------
     if to_status == RDV_A_CONFIRMER:
-        # Envoi immédiat du SMS de confirmation
-        send_appointment_confirmation_sms_task.delay(lead.id)
+        # ✅ Django-Q2 : dispatch via la fonction publique (plus de .delay())
+        send_appointment_confirmation_sms_task(lead.id)
 
         logger.info(
-            "[handle_status_changed] Task SMS confirmation dispatchée : lead_id=%s",
+            "[handle_status_changed] SMS confirmation dispatché : lead_id=%s",
             lead.id,
         )
 
     # --------------------------------------------------
-    # 2. RDV_CONFIRME (Le lead a validé sa venue)
+    # 2. RDV_CONFIRME
     # --------------------------------------------------
     elif to_status == RDV_CONFIRME:
         logger.info(
             "[handle_status_changed] RDV confirmé — lead_id=%s",
             lead.id,
         )
-        # Ici, on laisse le Celery Beat prendre le relais pour les rappels J-2 / J-1
 
     # --------------------------------------------------
-    # 3. ABSENT (Le lead ne s'est pas présenté)
+    # 3. ABSENT
     # --------------------------------------------------
     elif to_status == ABSENT:
-        # A. SMS URGENCE : Envoi immédiat ("On vous attendait...")
-        send_absent_urgency_sms_task.delay(lead.id)
+        # A. SMS URGENCE — immédiat
+        send_absent_urgency_sms_task(lead.id)
 
         logger.info(
-            "[handle_status_changed] Task SMS absent urgence dispatchée : lead_id=%s",
+            "[handle_status_changed] SMS absent urgence dispatché : lead_id=%s",
             lead.id,
         )
 
-        # B. TÂCHE CRM : Création d'une tâche de rappel pour le commercial (+2h)
-        # Import local pour éviter le circular import (models -> engine -> tasks -> models)
+        # B. TÂCHE CRM — création en arrière-plan
         try:
             from api.leads_task.tasks import create_absent_followup_task
-            create_absent_followup_task.delay(
+            create_absent_followup_task(
                 lead_id=lead.id,
                 triggered_event_id=event.id,
             )
-            logger.info("[handle_status_changed] Tâche CRM Relance créée : lead_id=%s", lead.id)
+            logger.info(
+                "[handle_status_changed] Tâche CRM Relance dispatchée : lead_id=%s",
+                lead.id,
+            )
         except ImportError:
-            logger.error("[handle_status_changed] Impossible d'importer create_absent_followup_task")
+            logger.error(
+                "[handle_status_changed] Impossible d'importer create_absent_followup_task"
+            )
 
     # --------------------------------------------------
-    # 4. PRESENT (Venu en RDV mais sans signature immédiate)
+    # 4. PRESENT
     # --------------------------------------------------
     elif to_status == PRESENT:
-        # Envoi d'un SMS de motivation / avis 2h après le RDV
-        send_present_no_contract_sms_task.apply_async(
-            args=[lead.id],
-            countdown=POST_RDV_DELAY,
-        )
+        # ✅ Django-Q2 : countdown géré via le paramètre countdown= du dispatcher
+        send_present_no_contract_sms_task(lead.id, countdown=POST_RDV_DELAY)
 
         logger.info(
-            "[handle_status_changed] Task SMS relance PRESENT planifiée (+2h) : lead_id=%s",
+            "[handle_status_changed] SMS relance PRESENT planifié (+2h) : lead_id=%s",
             lead.id,
         )
 
     # --------------------------------------------------
-    # 5. Statut non géré par l'automation
+    # 5. Statut non géré
     # --------------------------------------------------
     else:
         logger.debug(

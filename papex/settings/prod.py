@@ -1,13 +1,9 @@
 import os
-import ssl
-from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
-from kombu import Queue
 from dotenv import load_dotenv
 from redis import SSLConnection
-from celery.schedules import crontab
 
 # -----------------------------------------------------------------------------
 # ENV
@@ -34,6 +30,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL")
 # APPS
 # -----------------------------------------------------------------------------
 DJANGO_APPS = [
+    "django.contrib.admin",        # ✅ Requis pour /admin/
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -41,21 +38,12 @@ DJANGO_APPS = [
     "django.contrib.staticfiles",
 ]
 
-CELERY_TASK_QUEUES = (
-    Queue("default"),
-    Queue("emails"),
-    Queue("sms"),
-    Queue("scheduler"),
-)
-
-CELERY_TASK_DEFAULT_QUEUE = "default"
-
 THIRD_PARTY_APPS = [
     "corsheaders",
     "storages",
     "channels",
     "django_extensions",
-    "django_celery_beat",
+    "django_q",          # ✅ Django-Q2 remplace django_celery_beat + celery
     "django_filters",
     "background_task",
     "rest_framework",
@@ -150,8 +138,6 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# Si tu te connectes par email, garde ce backend custom.
-# Sinon remplace par le backend Django par défaut.
 AUTHENTICATION_BACKENDS = [
     "api.custom_auth.authentication.EmailBackend",
 ]
@@ -164,11 +150,8 @@ TIME_ZONE = "Europe/Paris"
 USE_I18N = True
 USE_TZ = True
 
-CELERY_ENABLE_UTC = True
-CELERY_TIMEZONE = "Europe/Paris"
-
 # -----------------------------------------------------------------------------
-# REST FRAMEWORK (SESSION AUTH)
+# REST FRAMEWORK
 # -----------------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -259,13 +242,11 @@ CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
 CSRF_COOKIE_PATH = "/"
 CSRF_COOKIE_SAMESITE = "None"
 
-# HTTPS derrière proxy/CDN
 SECURE_SSL_REDIRECT = False
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
 
-# HSTS
 SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
@@ -308,15 +289,16 @@ DATABASES["default"].update(
 )
 
 # -----------------------------------------------------------------------------
-# REDIS (shared for Channels + Celery)
+# REDIS (uniquement pour Django Channels — WebSocket)
+# ✅ Plus utilisé comme broker de tâches (c'est la DB Postgres qui s'en charge)
 # -----------------------------------------------------------------------------
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0") # 👈 Ajout d'un fallback par défaut
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 USE_UPSTASH = "upstash.io" in REDIS_URL
 IS_REDIS_SSL = REDIS_URL.startswith("rediss://")
 
 # -----------------------------------------------------------------------------
-# CHANNELS
+# CHANNELS (WebSocket — Redis conservé uniquement ici)
 # -----------------------------------------------------------------------------
 CHANNEL_LAYERS = {
     "default": {
@@ -335,85 +317,55 @@ CHANNEL_LAYERS = {
 }
 
 # -----------------------------------------------------------------------------
-# CELERY
+# DJANGO-Q2
+# ✅ Remplace Celery + Celery Beat + Redis broker
+# Broker : ta base Postgres (aucune dépendance externe supplémentaire)
+# Un seul worker léger suffit sur 1 CPU / 2 Go RAM
 # -----------------------------------------------------------------------------
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+Q_CLUSTER = {
+    "name": "papex",
 
-CELERY_BROKER_TRANSPORT_OPTIONS = {
-    "visibility_timeout": int(os.getenv("CELERY_VISIBILITY_TIMEOUT", "3600")),
-    "socket_keepalive": True,
-    "retry_on_timeout": True,
-    "health_check_interval": int(os.getenv("CELERY_HEALTHCHECK_INTERVAL", "30")),
+    # ── Broker ──────────────────────────────────────────────
+    # "orm" = ta base Postgres. Aucun Redis, aucun RabbitMQ nécessaire.
+    "orm": "default",
+
+    # ── Workers ─────────────────────────────────────────────
+    # Sur 1 CPU / 2 Go : 2 workers est le bon équilibre.
+    # Augmenter au-delà de 4 saturera le CPU sur Render Standard.
+    "workers": 2,
+
+    # ── Taille de la file mémoire par worker ────────────────
+    # Limite la RAM consommée (10 tâches max en attente par worker).
+    "queue_limit": 10,
+
+    # ── Retry & timeouts ────────────────────────────────────
+    "retry": 60,           # Réessaie une tâche échouée après 60 s
+    "timeout": 300,        # Tâche killée si > 5 min (évite les zombies)
+    "max_attempts": 3,     # 3 tentatives max avant abandon définitif
+
+    # ── Polling ─────────────────────────────────────────────
+    # Fréquence de polling de la DB (en secondes).
+    # 2 s = réactif sans marteler la base.
+    "poll": 2,
+
+    # ── Scheduler ───────────────────────────────────────────
+    # Activer le scheduler interne (remplace Celery Beat)
+    "schedule_tasks": True,
+
+    # ── Timezone ────────────────────────────────────────────
+    "timezone": "Europe/Paris",
+
+    # ── Compression des arguments ───────────────────────────
+    # Réduit la taille des payloads stockés en base.
+    "compress": True,
+
+    # ── Sauvegarde des résultats réussis ────────────────────
+    # Garde les 250 derniers résultats (succès + erreurs)
+    "save_limit": 250,
+
+    # ── Log level ───────────────────────────────────────────
+    "log_level": "INFO",
 }
-
-CELERY_TASK_ROUTES = {
-    "api.leads.tasks.process_appointment_reminders": {"queue": "scheduler"},  # 👈 Plus de .appointments
-    "api.leads.tasks.mark_absent_leads": {"queue": "scheduler"},
-    "api.leads.tasks.process_absent_leads_followup": {"queue": "scheduler"},
-    "api.leads.tasks.send_confirm_presence_flow_task": {"queue": "sms"},
-    "api.sms.tasks.*": {"queue": "sms"},
-    "api.utils.email.*": {"queue": "emails"},
-}
-
-CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"))
-CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_PREFETCH_MULTIPLIER", "1"))
-
-CELERY_BEAT_SCHEDULE = {
-    "process-appointment-reminders": {
-        "task": "api.leads.tasks.process_appointment_reminders",
-        "schedule": crontab(minute="*/30"),
-        "options": {"queue": "scheduler", "expires": 300}
-    },
-    "mark-leads-absent": {
-        "task": "api.leads.tasks.mark_absent_leads",
-        "schedule": crontab(minute="*/30"),
-        "options": {"queue": "scheduler", "expires": 300}
-    },
-    "process-absent-leads-followup": {
-        "task": "api.leads.tasks.process_absent_leads_followup",
-        "schedule": crontab(hour=10, minute=0),
-        "options": {"queue": "scheduler", "expires": 3600}
-    },
-    "send-payment-due-reminders": {
-        "task": "api.payments.tasks.send_payment_due_reminders",
-        "schedule": crontab(hour=9, minute=0),
-        "options": {"queue": "emails", "expires": 3600}
-    },
-}
-
-CELERY_IMPORTS = (
-    "api.leads.tasks",
-    "api.payments.tasks",
-    "api.sms.tasks",
-    "api.utils.email",
-)
-
-
-if IS_REDIS_SSL:
-    CELERY_BROKER_TRANSPORT_OPTIONS["ssl_cert_reqs"] = ssl.CERT_NONE
-
-CELERY_WORKER_PREFETCH_MULTIPLIER = int(
-    os.getenv("CELERY_PREFETCH_MULTIPLIER", "1")
-)
-
-CELERY_TASK_ACKS_LATE = os.getenv(
-    "CELERY_ACKS_LATE", "true"
-).lower() in ("true", "1")
-
-CELERY_TASK_REJECT_ON_WORKER_LOST = os.getenv(
-    "CELERY_REJECT_ON_WORKER_LOST", "true"
-).lower() in ("true", "1")
-
-worker_cancel_long_running_tasks_on_connection_loss = (
-    os.getenv("CELERY_CANCEL_LONG_RUNNING_ON_CONN_LOSS", "false").lower()
-    in ("true", "1")
-)
-
-CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", str(5 * 60)))      # 5 min
-CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", str(4 * 60)))  # 4 min
-CELERY_RESULT_EXPIRES = int(os.getenv("CELERY_RESULT_EXPIRES", "3600"))
 
 # -----------------------------------------------------------------------------
 # STORAGE (Scaleway S3)
@@ -444,10 +396,11 @@ SCW_BUCKETS = {
     "candidates": BUCKET_CV,
 }
 
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
 if STORAGE_BACKEND == "aws":
     DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
-
-
 
 SESSION_COOKIE_AGE = 60 * 60 * 8  # 8 heures
 SESSION_SAVE_EVERY_REQUEST = True

@@ -1,9 +1,10 @@
 # api/leads_task/tasks.py
+# ✅ Migré Celery → Django-Q2
 
 import logging
 import random
 
-from celery import shared_task
+from django_q.tasks import async_task
 from django.utils import timezone
 
 from api.leads.models import Lead
@@ -11,41 +12,24 @@ from api.leads_task.models import LeadTask
 from api.leads_task_type.models import LeadTaskType
 from api.leads_task_status.models import LeadTaskStatus
 from api.leads_events.models import LeadEvent
-
 from api.users.models import User
 from api.users.roles import UserRoles
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task
-def create_absent_followup_task(lead_id: int, triggered_event_id: int = None):
-    """
-    Crée automatiquement une tâche de relance lorsqu’un lead devient ABSENT.
+# ================================================================
+# WORKER
+# ================================================================
 
-    ✔ due_at = instant du passage ABSENT
-    ✔ assignation automatique à un utilisateur ACCUEIL actif
-    ✔ anti-doublon robuste
-    ✔ traçabilité via LeadEvent
-    """
-
-    # --------------------------------------------------
-    # Récupération du lead
-    # --------------------------------------------------
-
+def _run_create_absent_followup_task(lead_id: int, triggered_event_id: int = None):
     lead = Lead.objects.filter(id=lead_id).select_related("status").first()
 
     if not lead:
-        logger.warning(
-            "[create_absent_followup_task] Lead #%s introuvable — ignoré",
-            lead_id,
-        )
+        logger.warning("[create_absent_followup_task] Lead #%s introuvable — ignoré", lead_id)
         return
 
-    # --------------------------------------------------
-    # Anti-doublon (task déjà existante ?)
-    # --------------------------------------------------
-
+    # Anti-doublon tâche
     already_exists = LeadTask.objects.filter(
         lead=lead,
         task_type__code="RELANCE_LEAD",
@@ -53,16 +37,10 @@ def create_absent_followup_task(lead_id: int, triggered_event_id: int = None):
     ).exists()
 
     if already_exists:
-        logger.info(
-            "[create_absent_followup_task] Tâche déjà existante — ignoré : lead_id=%s",
-            lead_id,
-        )
+        logger.info("[create_absent_followup_task] Tâche déjà existante — ignoré : lead_id=%s", lead_id)
         return
 
-    # --------------------------------------------------
-    # Anti-doublon via event (sécurité supplémentaire)
-    # --------------------------------------------------
-
+    # Anti-doublon event
     already_created = LeadEvent.objects.filter(
         lead=lead,
         event_type__code="TASK_RELANCE_CREATED"
@@ -71,10 +49,7 @@ def create_absent_followup_task(lead_id: int, triggered_event_id: int = None):
     if already_created:
         return
 
-    # --------------------------------------------------
     # Récupération type + statut
-    # --------------------------------------------------
-
     try:
         task_type = LeadTaskType.objects.get(code="RELANCE_LEAD")
     except LeadTaskType.DoesNotExist:
@@ -87,40 +62,16 @@ def create_absent_followup_task(lead_id: int, triggered_event_id: int = None):
         logger.error("LeadTaskStatus A_FAIRE introuvable")
         return
 
-    # --------------------------------------------------
-    # Récupération event déclencheur
-    # --------------------------------------------------
-
+    # Event déclencheur
     triggered_by_event = None
-
     if triggered_event_id:
-        triggered_by_event = LeadEvent.objects.filter(
-            id=triggered_event_id
-        ).first()
+        triggered_by_event = LeadEvent.objects.filter(id=triggered_event_id).first()
 
-    # --------------------------------------------------
-    # Attribution automatique (ACCUEIL actifs)
-    # --------------------------------------------------
-
-    accueil_users = User.objects.filter(
-        role=UserRoles.ACCUEIL,
-        is_active=True
-    )
-
-    assigned_user = None
-
-    if accueil_users.exists():
-        assigned_user = random.choice(list(accueil_users))
-
-    # --------------------------------------------------
-    # Échéance = MAINTENANT (🔥 ton besoin)
-    # --------------------------------------------------
+    # Attribution ACCUEIL
+    accueil_users = User.objects.filter(role=UserRoles.ACCUEIL, is_active=True)
+    assigned_user = random.choice(list(accueil_users)) if accueil_users.exists() else None
 
     due_at = timezone.now()
-
-    # --------------------------------------------------
-    # Création de la tâche
-    # --------------------------------------------------
 
     task = LeadTask.objects.create(
         lead=lead,
@@ -144,10 +95,6 @@ def create_absent_followup_task(lead_id: int, triggered_event_id: int = None):
         },
     )
 
-    # --------------------------------------------------
-    # Log de traçabilité
-    # --------------------------------------------------
-
     LeadEvent.log(
         lead=lead,
         event_code="TASK_RELANCE_CREATED",
@@ -159,7 +106,19 @@ def create_absent_followup_task(lead_id: int, triggered_event_id: int = None):
 
     logger.info(
         "[create_absent_followup_task] Task créée : task_id=%s | lead_id=%s | assigned_to=%s",
-        task.id,
-        lead.id,
-        assigned_user.id if assigned_user else None
+        task.id, lead.id, assigned_user.id if assigned_user else None
+    )
+
+
+# ================================================================
+# API PUBLIQUE — dispatch
+# ================================================================
+
+def create_absent_followup_task(lead_id: int, triggered_event_id: int = None):
+    """Dispatch la création de tâche relance absent. Anciennement .delay()"""
+    async_task(
+        "api.leads_task.tasks._run_create_absent_followup_task",
+        lead_id,
+        triggered_event_id,
+        group="crm",
     )

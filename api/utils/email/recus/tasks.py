@@ -1,50 +1,41 @@
-import logging
-from celery import shared_task
+# api/utils/email/recus/tasks.py
+# ✅ Migré Celery → Django-Q2
 
-from api.utils.email.recus.notifications import send_receipts_email_to_lead
+import logging
+
+from django_q.tasks import async_task
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(queue="emails")
-def send_receipts_email_task(lead_id: int):
-    """
-    Task Celery pour envoyer les reçus de paiement par e-mail au lead associé.
-    """
+# ================================================================
+# WORKERS
+# ================================================================
+
+def _run_send_receipts_email(lead_id: int, receipt_ids: list = None):
     from api.leads.models import Lead
     from api.payments.models import PaymentReceipt
+    from api.utils.email.recus.notifications import send_receipts_email_to_lead
 
     lead = Lead.objects.filter(id=lead_id).first()
 
     if not lead or not lead.email:
-        logger.warning(
-            f"❌ Reçus non envoyés – lead #{lead_id} introuvable ou sans email."
-        )
+        logger.warning("❌ Reçus non envoyés — lead #%s introuvable ou sans email.", lead_id)
         return
 
-    receipts = (
-        PaymentReceipt.objects
-        .filter(client__lead=lead)
-        .exclude(receipt_url__isnull=True)
-    )
+    qs = PaymentReceipt.objects.filter(client__lead=lead).exclude(receipt_url__isnull=True)
+    if receipt_ids:
+        qs = qs.filter(id__in=receipt_ids)
 
-    if not receipts.exists():
-        logger.warning(
-            f"❌ Aucun reçu à envoyer pour le lead #{lead_id} ({lead.email})."
-        )
+    if not qs.exists():
+        logger.warning("❌ Aucun reçu à envoyer pour le lead #%s.", lead_id)
         return
 
-    send_receipts_email_to_lead(lead, receipts)
-    logger.info(
-        f"📩 {receipts.count()} reçu(s) envoyé(s) à {lead.email}"
-    )
+    send_receipts_email_to_lead(lead, qs)
+    logger.info("📩 %s reçu(s) envoyé(s) à %s", qs.count(), lead.email)
 
 
-@shared_task(queue="emails")
-def send_due_date_updated_email_task(receipt_id: int, new_due_date: str):
-    """
-    Task Celery pour envoyer un e-mail suite à la mise à jour d'une date d’échéance.
-    """
+def _run_send_due_date_updated_email(receipt_id: int, new_due_date: str):
     from datetime import datetime
     from api.payments.models import PaymentReceipt
     from api.utils.email.recus.notifications import send_due_date_updated_email
@@ -55,21 +46,37 @@ def send_due_date_updated_email_task(receipt_id: int, new_due_date: str):
             .select_related("client__lead", "contract__service")
             .get(id=receipt_id)
         )
-
         parsed_date = datetime.fromisoformat(new_due_date)
         send_due_date_updated_email(receipt, parsed_date)
-
         logger.info(
-            f"📧 Email de mise à jour d’échéance envoyé "
-            f"(reçu #{receipt.id}, {receipt.client.lead.email})"
+            "📧 Email mise à jour échéance envoyé (reçu #%s, %s)",
+            receipt.id, receipt.client.lead.email
         )
-
     except PaymentReceipt.DoesNotExist:
-        logger.warning(
-            f"❌ Reçu #{receipt_id} introuvable – e-mail non envoyé."
-        )
+        logger.warning("❌ Reçu #%s introuvable — email non envoyé.", receipt_id)
     except Exception as e:
-        logger.error(
-            f"❌ Erreur lors de l’envoi de l’e-mail de modification de date : {e}",
-            exc_info=True,
-        )
+        logger.error("❌ Erreur email modification date : %s", e, exc_info=True)
+
+
+# ================================================================
+# API PUBLIQUE
+# ================================================================
+
+def send_receipts_email_task(lead_id: int, receipt_ids: list = None):
+    """Anciennement send_receipts_email_task.delay(lead_id)"""
+    async_task(
+        "api.utils.email.recus.tasks._run_send_receipts_email",
+        lead_id,
+        receipt_ids,
+        group="emails",
+    )
+
+
+def send_due_date_updated_email_task(receipt_id: int, new_due_date: str):
+    """Anciennement send_due_date_updated_email_task.delay(receipt_id, new_due_date)"""
+    async_task(
+        "api.utils.email.recus.tasks._run_send_due_date_updated_email",
+        receipt_id,
+        new_due_date,
+        group="emails",
+    )

@@ -1,101 +1,71 @@
+# api/payments/views.py
+# ✅ Migré Celery (.delay()) → Django-Q2 (appels directs dispatchers)
+
 import logging
 from decimal import Decimal
 from collections import defaultdict
 import threading
-from concurrent.futures import ThreadPoolExecutor
 
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from datetime import date, timedelta
-from datetime import datetime
+from datetime import date, datetime
 
 from api.leads.models import Lead
 from api.payments.models import PaymentReceipt
 from api.payments.permissions import IsPaymentEditor
 from api.payments.serializers import PaymentReceiptSerializer
-from api.utils.email.recus.tasks import send_receipts_email_task
-from api.utils.email.recus.tasks import send_due_date_updated_email_task
+
+# ✅ Import des dispatchers Django-Q2 (plus de .delay())
+from api.utils.email.recus.tasks import (
+    send_receipts_email_task,
+    send_due_date_updated_email_task,
+)
 
 logger = logging.getLogger(__name__)
 
 FIELDS_THAT_REQUIRE_RECEIPT_PDF_REGEN = {"amount", "mode", "mode_detail", "payment_date"}
 
-class PaymentReceiptViewSet(viewsets.ModelViewSet):
-    """
-    API ViewSet pour gérer les reçus de paiement (PaymentReceipt).
-    """
 
+class PaymentReceiptViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentReceiptSerializer
     permission_classes = [IsPaymentEditor]
 
     def get_queryset(self):
-        """
-        Permet de filtrer les paiements par contract_id.
-        """
         queryset = PaymentReceipt.objects.select_related("client", "contract", "created_by")
-
         contract_id = self.request.query_params.get("contract_id")
-
         if contract_id:
             queryset = queryset.filter(contract_id=contract_id)
-
         return queryset.order_by("-payment_date")
 
     def _check_and_generate_invoice(self, contract):
-        """
-        Vérifie si le contrat est entièrement payé et génère la facture si c'est le cas.
-        """
         try:
-            # Rafraîchir le contrat depuis la base pour avoir les données à jour
             contract.refresh_from_db()
-
             if contract.is_fully_paid and not contract.invoice_url:
-                logger.info(f"🎉 Contrat #{contract.id} entièrement payé, génération de la facture...")
-
-                # Générer la facture PDF
+                logger.info("🎉 Contrat #%s entièrement payé — génération facture...", contract.id)
                 invoice_url = contract.generate_invoice_pdf()
-
                 if invoice_url:
-                    logger.info(f"✅ Facture générée avec succès: {invoice_url}")
+                    logger.info("✅ Facture générée : %s", invoice_url)
                     return invoice_url
                 else:
-                    logger.error(f"❌ Échec de la génération de la facture pour le contrat #{contract.id}")
+                    logger.error("❌ Échec génération facture contrat #%s", contract.id)
                     return None
-            else:
-                if contract.invoice_url:
-                    logger.debug(f"ℹ️ Facture déjà générée pour le contrat #{contract.id}")
-                elif not contract.is_fully_paid:
-                    logger.debug(
-                        f"ℹ️ Contrat #{contract.id} pas encore entièrement payé (solde: {contract.balance_due}€)")
-
-                return contract.invoice_url
-
+            return contract.invoice_url
         except Exception as e:
-            logger.error(f"❌ Erreur lors de la vérification/génération de la facture pour contrat #{contract.id}: {e}")
+            logger.error("❌ Erreur vérification facture contrat #%s : %s", contract.id, e)
             return None
 
     def perform_create(self, serializer):
-        """
-        Sauvegarde le reçu avec l'utilisateur connecté, puis génère son PDF.
-        Écrase aussi les autres `next_due_date` pour ce contrat.
-        """
         receipt = serializer.save(created_by=self.request.user)
 
-        # Si une prochaine échéance est définie, on l'unifie
         if receipt.contract and receipt.next_due_date:
             PaymentReceipt.objects.filter(
                 contract=receipt.contract,
-            ).exclude(
-                pk=receipt.pk
-            ).update(next_due_date=None)
+            ).exclude(pk=receipt.pk).update(next_due_date=None)
 
-        # Générer le PDF du reçu
         receipt.generate_pdf()
 
-        # ✅ VÉRIFIER SI C'EST LE DERNIER PAIEMENT ET GÉNÉRER LA FACTURE
         if receipt.contract:
-            # Lancer la vérification dans un thread séparé pour ne pas bloquer la réponse
             threading.Thread(
                 target=self._check_and_generate_invoice,
                 args=(receipt.contract,),
@@ -103,9 +73,6 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
             ).start()
 
     def create(self, request, *args, **kwargs):
-        """
-        Empêche la création si le montant est ≤ 0.
-        """
         data = request.data.copy()
         try:
             amount = Decimal(data.get("amount", "0"))
@@ -113,47 +80,9 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
             return Response({"error": "Montant invalide."}, status=400)
 
         if amount <= 0:
-            return Response(
-                {"error": "Le montant doit être supérieur à zéro."}, status=400
-            )
+            return Response({"error": "Le montant doit être supérieur à zéro."}, status=400)
 
         return super().create(request, *args, **kwargs)
-
-    def _regenerate_pdf_async(self, receipt_id, old_receipt_url=None):
-        """
-        Régénère le PDF de manière asynchrone dans un thread séparé.
-        """
-
-        def regenerate_task():
-            try:
-                logger.info(f"Début régénération PDF asynchrone pour reçu #{receipt_id}")
-
-                # ✅ IMPORTANT: Récupérer une NOUVELLE instance depuis la base
-                from api.payments.models import PaymentReceipt
-                receipt = PaymentReceipt.objects.get(id=receipt_id)
-
-                # Supprimer l'ancien PDF s'il existe
-                if old_receipt_url:
-                    try:
-                        self._delete_file_from_url("receipts", old_receipt_url)
-                        logger.info(f"Ancien PDF supprimé: {old_receipt_url}")
-                    except Exception as e:
-                        logger.warning(f"Impossible de supprimer l'ancien PDF: {e}")
-
-                # ✅ Générer le PDF avec les NOUVELLES données
-                receipt.generate_pdf()
-                logger.info(f"PDF régénéré avec succès pour reçu #{receipt_id}")
-
-            except PaymentReceipt.DoesNotExist:
-                logger.error(f"Reçu #{receipt_id} introuvable")
-            except Exception as e:
-                logger.error(f"Erreur régénération PDF asynchrone reçu #{receipt_id}: {e}")
-
-        # Lancer dans un thread séparé
-        import threading
-        thread = threading.Thread(target=regenerate_task)
-        thread.daemon = True
-        thread.start()
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -170,17 +99,14 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
                     try:
                         self._delete_file_from_url("receipts", old_receipt_url)
                     except Exception as e:
-                        logger.warning(f"Impossible de supprimer l'ancien reçu PDF: {e}")
+                        logger.warning("Impossible de supprimer l'ancien reçu PDF: %s", e)
 
-                # Reset en base ET en mémoire
                 PaymentReceipt.objects.filter(pk=instance.pk).update(receipt_url=None)
                 instance.receipt_url = None
-
                 instance.generate_pdf()
                 instance.refresh_from_db()
 
-                serializer = self.get_serializer(instance)
-                return Response(serializer.data)
+                return Response(self.get_serializer(instance).data)
 
         return response
 
@@ -199,36 +125,27 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
                     try:
                         self._delete_file_from_url("receipts", old_receipt_url)
                     except Exception as e:
-                        logger.warning(f"Impossible de supprimer l'ancien reçu PDF: {e}")
+                        logger.warning("Impossible de supprimer l'ancien reçu PDF: %s", e)
 
-                # Reset en base ET en mémoire
                 PaymentReceipt.objects.filter(pk=instance.pk).update(receipt_url=None)
                 instance.receipt_url = None
-
                 instance.generate_pdf()
                 instance.refresh_from_db()
 
-                serializer = self.get_serializer(instance)
-                return Response(serializer.data)
+                return Response(self.get_serializer(instance).data)
 
         return response
 
     def destroy(self, request, *args, **kwargs):
-        """
-        Supprime aussi le PDF dans S3 (Scaleway/MinIO) si présent.
-        """
         instance = self.get_object()
         if instance.receipt_url:
             try:
                 self._delete_file_from_url("receipts", instance.receipt_url)
             except Exception as e:
-                logger.warning(f"Erreur suppression du reçu PDF S3 : {e}")
+                logger.warning("Erreur suppression reçu PDF S3 : %s", e)
         return super().destroy(request, *args, **kwargs)
 
     def _delete_file_from_url(self, bucket_key: str, file_url: str):
-        """
-        Supprime un fichier du storage à partir de son URL.
-        """
         try:
             from django.conf import settings
             from api.utils.cloud.scw.bucket_utils import delete_object
@@ -238,15 +155,11 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
             path = file_url.split(split_token, 1)[-1]
             delete_object(bucket_key, path)
         except Exception as e:
-            logger.error(f"Erreur suppression fichier S3: {e}")
+            logger.error("Erreur suppression fichier S3: %s", e)
             raise
 
     @action(detail=False, methods=["post"], url_path="send-email")
     def send_receipts_email(self, request):
-        """
-        Envoie un ou plusieurs reçus PDF par email au lead concerné.
-        """
-
         lead_id = request.data.get("lead_id")
         receipt_ids = request.data.get("receipt_ids", [])
 
@@ -259,12 +172,7 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
         try:
             receipt_ids = [int(rid) for rid in receipt_ids]
         except (ValueError, TypeError):
-            return Response(
-                {"detail": "receipt_ids doit contenir des entiers."}, status=400
-            )
-
-        from api.leads.models import Lead
-        from api.payments.models import PaymentReceipt
+            return Response({"detail": "receipt_ids doit contenir des entiers."}, status=400)
 
         try:
             lead = Lead.objects.get(pk=lead_id)
@@ -272,22 +180,12 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Lead introuvable."}, status=404)
 
         if not lead.email:
-            return Response(
-                {"detail": "Ce lead ne possède pas d'adresse email."}, status=400
-            )
+            return Response({"detail": "Ce lead ne possède pas d'adresse email."}, status=400)
 
-        receipts = PaymentReceipt.objects.filter(
-            id__in=receipt_ids,
-            client__lead=lead
-        )
-
+        receipts = PaymentReceipt.objects.filter(id__in=receipt_ids, client__lead=lead)
         if not receipts.exists():
-            return Response(
-                {"detail": "Aucun reçu trouvé pour ce lead."},
-                status=404
-            )
+            return Response({"detail": "Aucun reçu trouvé pour ce lead."}, status=404)
 
-        # 🔥 EVENT
         from api.leads_events.models import LeadEvent
         from api.leads.automation.handlers.receipt_sent import handle_receipts_email_sent
 
@@ -295,50 +193,31 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
             lead=lead,
             event_code="RECEIPTS_EMAIL_SENT",
             actor=request.user,
-            data={
-                "receipt_ids": receipt_ids,
-            },
+            data={"receipt_ids": receipt_ids},
         )
 
-        # 🔥 HANDLER
         handle_receipts_email_sent(event)
 
-        return Response(
-            {"detail": "📨 Envoi des reçus en cours."},
-            status=200
-        )
+        return Response({"detail": "📨 Envoi des reçus en cours."}, status=200)
 
     @action(detail=False, methods=["get"], url_path="upcoming")
     def upcoming_payments(self, request):
-        """
-        Retourne la liste des paiements à venir (next_due_date ≥ aujourd'hui),
-        en ne retenant qu'un seul reçu par contrat (le plus proche),
-        pour les contrats avec un solde dû, triés par date croissante.
-
-        SANS FILTRE sur l'utilisateur : accessible à tous les utilisateurs autorisés.
-        """
         today = date.today()
 
-        # Étape 1 : requête initiale SANS filtre sur created_by
         receipts = (
             PaymentReceipt.objects
-            .filter(
-                next_due_date__gte=today,
-            )
+            .filter(next_due_date__gte=today)
             .select_related("contract", "client__lead")
             .order_by("contract_id", "next_due_date")
         )
 
-        # Étape 2 : filtrer pour ne garder que le reçu le plus proche par contrat
         grouped = defaultdict(list)
         for r in receipts:
             if r.contract and r.contract.balance_due > 0:
                 grouped[r.contract.id].append(r)
 
-        # Étape 3 : ne garder que le premier reçu (le plus proche) pour chaque contrat
         unique_receipts = [r_list[0] for r_list in grouped.values()]
 
-        # Étape 4 : construction de la réponse
         results = []
         for receipt in unique_receipts:
             results.append({
@@ -353,16 +232,11 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
                 "service_details": str(receipt.contract.service)
             })
 
-        # Trier les résultats finaux par date d'échéance
         results.sort(key=lambda r: r["next_due_date"])
-
         return Response(results)
 
     @action(detail=True, methods=["patch"], url_path="update-due-date")
     def update_next_due_date(self, request, pk=None):
-        """
-        Met à jour la prochaine date d'échéance d'un reçu lié à un contrat.
-        """
         try:
             receipt = self.get_object()
         except PaymentReceipt.DoesNotExist:
@@ -376,14 +250,15 @@ class PaymentReceiptViewSet(viewsets.ModelViewSet):
             parsed_date = datetime.fromisoformat(new_date).date()
         except ValueError:
             return Response({
-                "next_due_date": "Format de date invalide. Utilisez YYYY-MM-DD ou YYYY-MM-DDTHH:MM."
+                "next_due_date": "Format invalide. Utilisez YYYY-MM-DD ou YYYY-MM-DDTHH:MM."
             }, status=400)
 
         receipt.next_due_date = parsed_date
         receipt.save(update_fields=["next_due_date"])
 
+        # ✅ Django-Q2 : appel direct (plus de .delay())
         try:
-            send_due_date_updated_email_task.delay(receipt.id, parsed_date.isoformat())
+            send_due_date_updated_email_task(receipt.id, parsed_date.isoformat())
         except Exception as e:
             logger.exception("Erreur lors de l'envoi de l'email de mise à jour de l'échéance.")
 
