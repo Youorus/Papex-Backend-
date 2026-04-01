@@ -18,7 +18,7 @@ def handle_contract_email_sent(event):
 
     # 📧 EMAIL
     if lead.email:
-        send_contract_email_task.delay(contract_id)
+        send_contract_email_task(contract_id)
 
     logger.info(
         "📨 Contrat #%s envoyé pour Lead #%s",

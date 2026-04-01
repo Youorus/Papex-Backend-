@@ -2,49 +2,89 @@ from api.sms.constants import COMPANY_NAME, COMPANY_ADDRESS_SHORT, COMPANY_PHONE
 from api.sms.utils import get_lead_display_name, build_sms
 from api.sms.utils_datetime import get_french_datetime_strings_sms
 
+
 def _name_header(lead) -> str:
     name = get_lead_display_name(lead)
     return f"{name.upper()} : " if name else ""
 
+
 # ================================================================
-# TEMPLATES ACCESSIBLES & SANS AMBIGUITE (1 CREDIT)
+# TEMPLATES ACCESSIBLES & SANS AMBIGUITE (1 CREDIT - MAX 160 CHARS)
 # ================================================================
 
 def tpl_appointment_confirmation(lead) -> str:
     d, t = get_french_datetime_strings_sms(lead.appointment_date)
-    # "à" et "é" sont autorisés en GSM 7-bit (160 caractères)
-    msg = f"{COMPANY_NAME} : {_name_header(lead)}C'est tout bon pour votre RDV le {d} à {t}. On vous attend ! Adresse : {COMPANY_ADDRESS_SHORT}"
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}RDV confirmé le {d} à {t} avec notre Juriste sur votre démarche en France.\n"
+        f"Lieu : {COMPANY_ADDRESS_SHORT} (Code: {ACCESS_CODE})"
+    )
     return build_sms(msg)
+
 
 def tpl_appointment_reminder(lead) -> str:
     d, t = get_french_datetime_strings_sms(lead.appointment_date)
-    msg = f"{COMPANY_NAME} : {_name_header(lead)}Petit rappel pour notre RDV de {t}. À très vite ! Adresse : {COMPANY_ADDRESS_SHORT}"
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}Rappel : RDV aujourd'hui à {t} avec notre Juriste sur votre démarche en France.\n"
+        f"{COMPANY_ADDRESS_SHORT} (Code: {ACCESS_CODE})"
+    )
     return build_sms(msg)
 
-def tpl_dossier_status_updated(lead) -> str:
-    # On évite "ça" (ç) qui coûte cher, on utilise "tout" ou "votre dossier"
-    msg = f"{COMPANY_NAME} : {_name_header(lead)}Bonne nouvelle : tout avance pour votre dossier ! On continue le travail. Tél : {COMPANY_PHONE}"
-    return build_sms(msg)
-
-def tpl_absent_urgency(lead) -> str:
-    msg = f"{COMPANY_NAME} : {_name_header(lead)}Mince, on vous a manqué ! Tout va bien ? Rappelez-nous au {COMPANY_PHONE} pour faire le point."
-    return build_sms(msg)
-
-def tpl_absent_followup(lead, week: int = 1) -> str:
-    txt = "on a besoin de vous pour avancer" if week == 1 else "votre dossier est en pause, on s'appelle ?"
-    msg = f"{COMPANY_NAME} : {_name_header(lead)}{txt}. Tél : {COMPANY_PHONE}"
-    return build_sms(msg)
-
-def tpl_present_no_contract(lead) -> str:
-    msg = f"{COMPANY_NAME} : {_name_header(lead)}Merci d'être venu. On fait quoi pour la suite ? On est là pour vous aider. Tél : {COMPANY_PHONE}"
-    return build_sms(msg)
-
-def tpl_contract_signed(lead) -> str:
-    # "Lancer" au lieu de "Lancé" si on veut être sûr, mais "é" passe très bien
-    msg = f"{COMPANY_NAME} : {_name_header(lead)}C'est parti ! Votre dossier est lancé. On s'occupe de toute la paperasse pour vous."
-    return build_sms(msg)
 
 def tpl_confirm_presence(lead) -> str:
     d, t = get_french_datetime_strings_sms(lead.appointment_date)
-    msg = f"{COMPANY_NAME} : {_name_header(lead)}Vous venez toujours pour le RDV à {t} ? Dites-nous si c'est ok au {COMPANY_PHONE}"
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}Maintenez-vous le RDV à {t} avec notre Juriste sur votre démarche en France ?\n"
+        f"Confirmez au {COMPANY_PHONE}"
+    )
+    return build_sms(msg)
+
+
+def tpl_dossier_status_updated(lead) -> str:
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}Excellente nouvelle : votre dossier avance !\n"
+        f"Notre Juriste continue le travail sur votre démarche.\n"
+        f"Contact : {COMPANY_PHONE}"
+    )
+    return build_sms(msg)
+
+
+def tpl_absent_urgency(lead) -> str:
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}Nous vous avons manqué ! Votre démarche est en attente.\n"
+        f"Rappelez d'urgence notre Juriste au {COMPANY_PHONE}."
+    )
+    return build_sms(msg)
+
+
+def tpl_absent_followup(lead, week: int = 1) -> str:
+    txt = "on a besoin de vous pour avancer" if week == 1 else "votre dossier est bloqué, appelez-nous"
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}Suite à votre absence, {txt}.\n"
+        f"Tél : {COMPANY_PHONE}"
+    )
+    return build_sms(msg)
+
+
+def tpl_present_no_contract(lead) -> str:
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}Merci de votre visite.\n"
+        f"Notre Juriste reste à disposition pour lancer votre démarche en France.\n"
+        f"Tél : {COMPANY_PHONE}"
+    )
+    return build_sms(msg)
+
+
+def tpl_contract_signed(lead) -> str:
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}C'est parti ! Votre dossier est lancé.\n"
+        f"Notre Juriste s'occupe de votre démarche en France."
+    )
     return build_sms(msg)

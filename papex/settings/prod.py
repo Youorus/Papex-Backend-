@@ -339,7 +339,7 @@ Q_CLUSTER = {
     "queue_limit": 10,
 
     # ── Retry & timeouts ────────────────────────────────────
-    "retry": 60,           # Réessaie une tâche échouée après 60 s
+    "retry": 120,           # Réessaie une tâche échouée après 60 s
     "timeout": 300,        # Tâche killée si > 5 min (évite les zombies)
     "max_attempts": 3,     # 3 tentatives max avant abandon définitif
 

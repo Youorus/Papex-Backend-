@@ -76,7 +76,8 @@ class LeadFilterView(generics.ListAPIView):
             has_tasks=Exists(
                 LeadTask.objects.filter(
                     lead=OuterRef("pk"),
-                    assigned_to=user  # logique métier (mes tâches)
+                    assigned_to=user,  # logique métier (mes tâches)
+                    completed_at__isnull=True  # 👈 Exclusion des tâches terminées
                 )
             ),
             has_contract=Exists(
@@ -97,7 +98,8 @@ class LeadFilterView(generics.ListAPIView):
 
         task_qs = LeadTask.objects.filter(
             lead=OuterRef("pk"),
-            assigned_to=user
+            assigned_to=user,
+            completed_at__isnull=True  # 👈 Exclusion des tâches terminées
         )
 
         if task_due_from:
