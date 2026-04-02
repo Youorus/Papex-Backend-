@@ -17,7 +17,7 @@ def handle_receipts_email_sent(event):
         return
 
     # 📧 TASK
-    send_receipts_email_task.delay(
+    send_receipts_email_task(
         lead_id=lead.id,
         receipt_ids=receipt_ids,
     )

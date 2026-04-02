@@ -34,13 +34,13 @@ def handle_dossier_status_changed(event):
     # 📧 EMAIL
     # --------------------------
     if lead.email:
-        send_dossier_status_notification_task.delay(lead.id)
+        send_dossier_status_notification_task(lead.id)
 
     # --------------------------
     # 📱 SMS
     # --------------------------
     if lead.phone:
-        send_dossier_status_updated_sms_task.delay(lead.id)
+        send_dossier_status_updated_sms_task(lead.id)
 
     # --------------------------
     # 🧾 LOG

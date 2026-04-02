@@ -21,12 +21,12 @@ def handle_lead_created(event):
     lead.save(update_fields=["status"])
 
     # 2. SMS Confirmation Immédiate
-    send_appointment_confirmation_sms_task.delay(lead.id)
+    send_appointment_confirmation_sms_task(lead.id)
 
     # 3. EMAIL Confirmation Immédiate (AJOUTÉ)
     # On vérifie si le lead a un email avant de lancer la tâche pour économiser des ressources
     if lead.email:
-        send_appointment_confirmation_task.delay(lead.id)
+        send_appointment_confirmation_task(lead.id)
     else:
         logger.warning("[handle_lead_created] Lead #%s n'a pas d'email, envoi annulé.", lead.id)
 
