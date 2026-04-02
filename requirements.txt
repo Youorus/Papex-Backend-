@@ -113,9 +113,6 @@ pyHanko==0.32.0
 pyhanko-certvalidator==0.29.0
 PyJWT==2.9.0
 PyMsgBox==1.0.9
-pyobjc-core==12.1
-pyobjc-framework-Cocoa==12.1
-pyobjc-framework-Quartz==12.1
 pyOpenSSL==25.0.0
 pypdf==6.4.0
 pyperclip==1.9.0
