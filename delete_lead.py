@@ -1,16 +1,40 @@
-from django.utils import timezone
-from api.leads.models import Lead
+import os
+import django
 
-# Date du jour (timezone Django)
-today = timezone.localdate()
+# 🔧 Setup Django
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "papex.settings.prod")
+django.setup()
 
-# Queryset des leads créés aujourd'hui
-qs = Lead.objects.filter(created_at__date=today)
+from django.db import transaction
 
-count = qs.count()
-print(f"🗑️ {count} lead(s) créé(s) aujourd’hui vont être supprimés")
+from api.users.models import User
+from api.leads_task.models import LeadTask
 
-# Suppression
-qs.delete()
 
-print("✅ Suppression terminée")
+EMAIL = "test@papex.fr"
+
+print(f"\n🧹 Suppression des tasks assignées à {EMAIL}...\n")
+
+# 🔍 récupérer le user
+user = User.objects.filter(email=EMAIL).first()
+
+if not user:
+    print("❌ Utilisateur introuvable")
+    exit()
+
+# 🔍 récupérer les tasks assignées à ce user
+tasks = LeadTask.objects.filter(assigned_to=user)
+
+count = tasks.count()
+
+print(f"📋 {count} tâches trouvées")
+
+if count == 0:
+    print("✅ Rien à supprimer")
+    exit()
+
+# 🔥 suppression
+with transaction.atomic():
+    tasks.delete()
+
+print(f"\n🔥 {count} tâches supprimées pour {EMAIL}\n")

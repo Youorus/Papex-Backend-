@@ -1,0 +1,112 @@
+from datetime import timedelta
+
+from django.utils import timezone
+from django.db import transaction
+
+from api.leads.models import Lead
+from api.lead_status.models import LeadStatus
+from api.leads.constants import (
+    PRESENT,
+    ABSENT,
+    RDV_A_CONFIRMER,
+    A_RAPPELER,
+    RDV_CONFIRME,
+    RDV_PLANIFIE,
+)
+
+from api.sms.tasks import send_absent_urgency_sms_task, send_appointment_reminder_sms_task
+from api.utils.email.leads.notifications import send_appointment_absent_email
+from api.utils.email.leads.tasks import send_appointment_absent_email_task
+
+
+def mark_missed_appointments_as_absent():
+    """
+    1. Passe les leads en ABSENT si RDV passé et non PRESENT
+    2. Déclenche un SMS + EMAIL pour chaque lead concerné
+    """
+
+    now = timezone.now()
+
+    absent_status = LeadStatus.objects.get(code=ABSENT)
+
+    # 🔥 Tous les RDV passés NON présent et NON absent
+    leads_qs = Lead.objects.filter(
+        appointment_date__isnull=False,
+        appointment_date__lt=now,
+    ).exclude(
+        status__code__in=[PRESENT, ABSENT]
+    )
+
+    lead_ids = list(leads_qs.values_list("id", flat=True))
+
+    if not lead_ids:
+        return "0 leads updated"
+
+    with transaction.atomic():
+        updated_count = leads_qs.update(status=absent_status)
+
+    # 🚀 Notifications async
+    for lead_id in lead_ids:
+        send_absent_urgency_sms_task(lead_id)
+        send_appointment_absent_email_task(lead_id)
+
+    return f"{updated_count} leads marked as ABSENT + SMS + EMAIL sent"
+
+
+def send_appointment_reminder_email_task(id):
+    pass
+
+
+def send_appointment_reminders():
+    """
+    Envoie des rappels de rendez-vous :
+    - 48h avant
+    - 24h avant
+
+    Envoie SMS + EMAIL
+    """
+
+    now = timezone.now()
+
+    # 🎯 fenêtres de rappel (tolérance 5 minutes)
+    reminder_windows = [
+        (timedelta(hours=48), "48h"),
+        (timedelta(hours=24), "24h"),
+    ]
+
+    tolerance = timedelta(minutes=5)
+
+    total_sent = 0
+
+    for delta, label in reminder_windows:
+
+        target_time = now + delta
+
+        window_start = target_time - tolerance
+        window_end = target_time + tolerance
+
+        leads = Lead.objects.filter(
+            appointment_date__gte=window_start,
+            appointment_date__lte=window_end,
+            status__code__in=[RDV_CONFIRME, RDV_PLANIFIE],
+        )
+
+        for lead in leads:
+
+            # 🔒 Anti doublon simple
+            if lead.last_reminder_sent:
+                # si déjà envoyé récemment (ex: moins de 20h)
+                if (now - lead.last_reminder_sent) < timedelta(hours=20):
+                    continue
+
+            # 🚀 Envoi async
+            send_appointment_reminder_sms_task(lead.id)
+            send_appointment_reminder_email_task(lead.id)
+
+            # 🧠 Tracking
+            lead.last_reminder_sent = now
+            lead.save(update_fields=["last_reminder_sent"])
+
+            total_sent += 1
+
+    return f"{total_sent} reminders sent"

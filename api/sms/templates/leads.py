@@ -26,7 +26,7 @@ def tpl_appointment_reminder(lead) -> str:
     d, t = get_french_datetime_strings_sms(lead.appointment_date)
     msg = (
         f"{COMPANY_NAME}\n"
-        f"{_name_header(lead)}Rappel : RDV aujourd'hui à {t} avec notre Juriste sur votre démarche en France.\n"
+        f"{_name_header(lead)}Rappel : RDV aujourd'hui à {t} avec notre Juriste sur votre situation en France.\n"
         f"{COMPANY_ADDRESS_SHORT} (Code: {ACCESS_CODE})"
     )
     return build_sms(msg)
@@ -53,10 +53,11 @@ def tpl_dossier_status_updated(lead) -> str:
 
 
 def tpl_absent_urgency(lead) -> str:
+    _, t = get_french_datetime_strings_sms(lead.appointment_date)
     msg = (
         f"{COMPANY_NAME}\n"
-        f"{_name_header(lead)}Nous vous avons manqué ! Votre démarche est en attente.\n"
-        f"Rappelez d'urgence notre Juriste au {COMPANY_PHONE}."
+        f"{_name_header(lead)}RDV manqué à {t}. Une opportunité perdue pour votre situation en France. "
+        f"Rappelez le {COMPANY_PHONE} pour reprendre RDV rapidement."
     )
     return build_sms(msg)
 

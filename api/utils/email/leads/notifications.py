@@ -1,22 +1,19 @@
-import os
-from datetime import datetime
-from urllib.parse import quote_plus
-
 from django.conf import settings
+from slugify import slugify
 
 from api.utils.email import send_html_email
-from slugify import slugify
 from api.utils.email.config import _build_context, COMPANY_ADDRESS
 
 
+# ================================================================
+# RDV
+# ================================================================
+
 def send_appointment_planned_email(lead):
-    """
-    Envoie un e-mail informant le lead que son rendez-vous a été planifié.
-    """
     context = _build_context(
         lead,
         dt=lead.appointment_date,
-        location=COMPANY_ADDRESS,  # adresse par défaut
+        location=COMPANY_ADDRESS,
     )
 
     return send_html_email(
@@ -28,13 +25,10 @@ def send_appointment_planned_email(lead):
 
 
 def send_appointment_confirmation_email(lead):
-    """
-    Envoie un e-mail de confirmation au lead pour son rendez-vous.
-    """
     context = _build_context(
         lead,
         dt=lead.appointment_date,
-        location=None,  # fallback automatique dans _build_context
+        location=None,
     )
 
     return send_html_email(
@@ -46,13 +40,10 @@ def send_appointment_confirmation_email(lead):
 
 
 def send_appointment_reminder_email(lead):
-    """
-    Envoie un e-mail de rappel au lead avant son rendez-vous.
-    """
     context = _build_context(
         lead,
         dt=lead.appointment_date,
-        location=None,  # fallback automatique dans _build_context
+        location=None,
     )
 
     return send_html_email(
@@ -63,33 +54,31 @@ def send_appointment_reminder_email(lead):
     )
 
 
-def send_missed_appointment_email(lead):
-    """
-    Envoie un e-mail au lead pour l’informer qu’il a manqué son rendez-vous.
-    """
+def send_appointment_absent_email(lead):
     context = _build_context(
         lead,
         dt=lead.appointment_date,
-        location=None,  # fallback automatique
+        location=None,
     )
 
     return send_html_email(
         to_email=lead.email,
-        subject="Absence constatée à votre rendez-vous – Papiers Express",
+        subject="Vous avez manqué votre rendez-vous - Papiers Express",
         template_name="email/leads/appointment_absent.html",
         context=context,
     )
 
 
+# ================================================================
+# FORMULAIRE
+# ================================================================
+
 def send_formulaire_email(lead):
-    """
-    Envoie un e-mail contenant un lien vers le formulaire à compléter.
-    """
     if not lead.email:
-        print(f"[WARNING] Aucun email pour le lead {lead.id}")
         return
 
     name_slug = slugify(f"{lead.first_name}-{lead.last_name}")
+
     formulaire_url = (
         f"{settings.FRONTEND_URL}/formulaire?"
         f"id={lead.id}&name={name_slug}"
@@ -97,9 +86,7 @@ def send_formulaire_email(lead):
 
     context = _build_context(
         lead,
-        extra={
-            "formulaire_url": formulaire_url,
-        },
+        extra={"formulaire_url": formulaire_url},
     )
 
     return send_html_email(
@@ -110,18 +97,17 @@ def send_formulaire_email(lead):
     )
 
 
+# ================================================================
+# DOSSIER
+# ================================================================
+
 def send_dossier_status_email(lead):
-    """
-    Envoie un e-mail au lead pour l’informer d’un changement de statut de dossier.
-    """
     if not lead.email or not lead.statut_dossier:
         return
 
     context = _build_context(
         lead,
-        extra={
-            "statut_dossier": lead.statut_dossier,
-        },
+        extra={"statut_dossier": lead.statut_dossier},
     )
 
     return send_html_email(
@@ -132,15 +118,14 @@ def send_dossier_status_email(lead):
     )
 
 
+# ================================================================
+# JURISTE
+# ================================================================
+
 def send_jurist_assigned_email(lead, jurist):
-    """
-    Envoie un e-mail au lead pour l’informer qu’un juriste lui a été assigné.
-    """
     context = _build_context(
         lead,
-        extra={
-            "jurist": jurist,
-        },
+        extra={"jurist": jurist},
     )
 
     return send_html_email(

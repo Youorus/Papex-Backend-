@@ -1,32 +1,15 @@
 import os
 import django
 
-# 🔧 Init Django
+# 🔧 Initialisation Django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "papex.settings.prod")
 django.setup()
 
-from api.leads.models import Lead
-from api.leads.constants import PRESENT, RDV_TELEPHONE, RDV_PRESENTIEL
+from api.lead_status.models import LeadStatus
 
+print("\n📊 ===== LISTE DES STATUTS =====\n")
 
-def run():
-    # 1️⃣ Tous les PRESENT
-    present_count = Lead.objects.filter(
-        status__code=PRESENT,
-    appointment_type =RDV_PRESENTIEL
-    ).count()
+for status in LeadStatus.objects.all():
+    print(f"Code: {status.code} | Label: {status.label}")
 
-    # 2️⃣ PRESENT + TELEPHONE
-    present_tel_count = Lead.objects.filter(
-        status__code=PRESENT,
-        appointment_type=RDV_TELEPHONE
-    ).count()
-
-    print("📊 Statistiques RDV")
-    print("-------------------")
-    print(f"👤 PRESENT total : {present_count}")
-    print(f"📞 PRESENT téléphonique : {present_tel_count}")
-
-
-if __name__ == "__main__":
-    run()
+print("\n✅ Terminé\n")
