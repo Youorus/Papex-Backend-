@@ -42,10 +42,8 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "storages",
     "channels",
-    "django_extensions",
     "django_q",          # ✅ Django-Q2 remplace django_celery_beat + celery
     "django_filters",
-    "background_task",
     "rest_framework",
 ]
 
