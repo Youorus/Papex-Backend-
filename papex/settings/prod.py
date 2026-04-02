@@ -339,7 +339,7 @@ Q_CLUSTER = {
     "queue_limit": 10,
 
     # ── Retry & timeouts ────────────────────────────────────
-    "retry": 120,           # Réessaie une tâche échouée après 60 s
+    "retry": 400,           # Réessaie une tâche échouée après 60 s
     "timeout": 300,        # Tâche killée si > 5 min (évite les zombies)
     "max_attempts": 3,     # 3 tentatives max avant abandon définitif
 
@@ -412,9 +412,39 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {
-        "console": {"class": "logging.StreamHandler"},
+
+    "formatters": {
+        "verbose": {
+            "format": "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        },
+        "simple": {
+            "format": "[%(levelname)s] %(message)s",
+        },
     },
+
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+
+    "loggers": {
+        # 🔥 Django-Q logs
+        "django_q": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+
+        # 🔥 Tes apps
+        "api": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": True,
+        },
+    },
+
     "root": {
         "handlers": ["console"],
         "level": DJANGO_LOG_LEVEL,
