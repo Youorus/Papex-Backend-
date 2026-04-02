@@ -1,8 +1,10 @@
 from rest_framework import viewsets, permissions
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.utils import timezone
 from django.db.models import Case, When, F, DateTimeField, IntegerField, Q
+from rest_framework import status
 
 from api.core.pagination import CRMLeadPagination
 from api.leads.models import Lead
@@ -99,6 +101,47 @@ class LeadViewSetV2(viewsets.ModelViewSet):
     # ==========================
     # FILTRES
     # ==========================
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="public-create",
+        permission_classes=[AllowAny]  # ⚠️ Important : override la permission
+    )
+    def public_create(self, request):
+        """
+        Endpoint public pour créer un lead depuis le formulaire de booking
+        Sans authentification requise
+        """
+        serializer = self.get_serializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                {"error": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Création du lead
+        lead = serializer.save()
+
+        # Création du client associé
+        from api.clients.models import Client
+        Client.objects.get_or_create(lead=lead)
+
+        # Log de l'événement (sans actor car public)
+        from api.leads_events.models import LeadEvent
+        LeadEvent.log(
+            lead=lead,
+            event_code="LEAD_CREATED",
+            actor=None,  # Pas d'utilisateur connecté
+            data={"source": "booking_form"}
+        )
+
+        # Retourne les données du lead créé
+        return Response(
+            self.get_serializer(lead).data,
+            status=status.HTTP_201_CREATED
+        )
 
     def _filter_by_search(self, queryset):
         search = self.request.query_params.get("search")
