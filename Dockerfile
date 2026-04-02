@@ -20,10 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xfonts-75dpi \
     xfonts-base \
     ca-certificates \
-    pkg-config \            # 🔥 IMPORTANT
-    libcairo2 \             # 🔥 IMPORTANT
-    libcairo2-dev \         # 🔥 IMPORTANT
-    libffi-dev \            # 🔥 souvent requis
+    pkg-config \
+    libcairo2 \
+    libcairo2-dev \
+    libffi-dev \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
