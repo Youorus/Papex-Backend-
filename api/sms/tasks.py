@@ -13,7 +13,7 @@ from api.sms.notifications.leads import (
     send_present_no_contract_sms,
     send_contract_signed_sms,
     send_confirm_presence_sms,
-    send_dossier_status_updated_sms,
+    send_dossier_status_updated_sms, send_appointment_reminder_48h_sms, send_appointment_reminder_24h_sms,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,20 @@ def send_appointment_confirmation_sms_task(lead_id: int):
         group="sms",
     )
 
+def send_appointment_reminder_48h_sms_task(lead_id: int):
+    async_task(
+        "api.sms.tasks._run_send_appointment_reminder_48h_sms",
+        lead_id,
+        group="sms",
+    )
+
+
+def send_appointment_reminder_24h_sms_task(lead_id: int):
+    async_task(
+        "api.sms.tasks._run_send_appointment_reminder_24h_sms",
+        lead_id,
+        group="sms",
+    )
 
 def send_appointment_reminder_sms_task(lead_id: int):
     async_task(
@@ -183,6 +197,22 @@ def send_contract_signed_sms_task(lead_id: int, countdown: int = 0):
         **kwargs,
     )
 
+
+
+def _run_send_appointment_reminder_48h_sms(lead_id: int, **kwargs):
+    lead = _get_lead(lead_id, "sms_reminder_48h")
+    if not lead:
+        return
+    send_appointment_reminder_48h_sms(lead)
+    logger.info("[sms_reminder_48h] → %s (lead #%s)", lead.phone, lead.id)
+
+
+def _run_send_appointment_reminder_24h_sms(lead_id: int, **kwargs):
+    lead = _get_lead(lead_id, "sms_reminder_24h")
+    if not lead:
+        return
+    send_appointment_reminder_24h_sms(lead)
+    logger.info("[sms_reminder_24h] → %s (lead #%s)", lead.phone, lead.id)
 
 def send_confirm_presence_sms_task(lead_id: int, countdown: int = 0):
     from django.utils import timezone

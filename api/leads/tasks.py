@@ -14,8 +14,8 @@ from api.leads.constants import (
     RDV_PLANIFIE,
 )
 
-from api.sms.tasks import send_absent_urgency_sms_task, send_appointment_reminder_sms_task
-from api.utils.email.leads.notifications import send_appointment_absent_email
+from api.sms.tasks import send_absent_urgency_sms_task, send_appointment_reminder_sms_task, \
+    send_appointment_reminder_48h_sms_task, send_appointment_reminder_24h_sms_task
 from api.utils.email.leads.tasks import send_appointment_absent_email_task
 
 
@@ -60,22 +60,20 @@ def send_appointment_reminder_email_task(id):
 def send_appointment_reminders():
     """
     Envoie des rappels de rendez-vous :
-    - 48h avant
-    - 24h avant
+    - 48h avant → SMS + EMAIL
+    - 24h avant → SMS + EMAIL (urgence)
 
-    Envoie SMS + EMAIL
+    Anti-doublon inclus
     """
 
     now = timezone.now()
 
-    # 🎯 fenêtres de rappel (tolérance 5 minutes)
     reminder_windows = [
         (timedelta(hours=48), "48h"),
         (timedelta(hours=24), "24h"),
     ]
 
     tolerance = timedelta(minutes=5)
-
     total_sent = 0
 
     for delta, label in reminder_windows:
@@ -93,17 +91,21 @@ def send_appointment_reminders():
 
         for lead in leads:
 
-            # 🔒 Anti doublon simple
+            # 🔒 Anti doublon intelligent
             if lead.last_reminder_sent:
-                # si déjà envoyé récemment (ex: moins de 20h)
                 if (now - lead.last_reminder_sent) < timedelta(hours=20):
                     continue
 
-            # 🚀 Envoi async
-            send_appointment_reminder_sms_task(lead.id)
+            # 🚀 SMS DIFFERENTS
+            if label == "48h":
+                send_appointment_reminder_48h_sms_task(lead.id)
+            else:
+                send_appointment_reminder_24h_sms_task(lead.id)
+
+            # 📧 EMAIL (tu peux aussi différencier si tu veux)
             send_appointment_reminder_email_task(lead.id)
 
-            # 🧠 Tracking
+            # 🧠 tracking
             lead.last_reminder_sent = now
             lead.save(update_fields=["last_reminder_sent"])
 

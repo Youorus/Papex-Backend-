@@ -41,6 +41,27 @@ def tpl_confirm_presence(lead) -> str:
     )
     return build_sms(msg)
 
+def tpl_appointment_reminder_24h(lead) -> str:
+    _, t = get_french_datetime_strings_sms(lead.appointment_date)
+
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}RDV DEMAIN a {t}.\n"
+        f"Confirmez par appel sinon votre place peut etre liberee.\n"
+        f"{COMPANY_PHONE}"
+    )
+    return build_sms(msg)
+
+def tpl_appointment_reminder_48h(lead) -> str:
+    d, t = get_french_datetime_strings_sms(lead.appointment_date)
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"{_name_header(lead)}RDV dans 48h {d} a {t}.\n"
+        f"Important pour votre situation.\n"
+        f"Appelez pour confirmer: {COMPANY_PHONE}"
+    )
+    return build_sms(msg)
+
 
 def tpl_dossier_status_updated(lead) -> str:
     msg = (
@@ -53,11 +74,13 @@ def tpl_dossier_status_updated(lead) -> str:
 
 
 def tpl_absent_urgency(lead) -> str:
-    _, t = get_french_datetime_strings_sms(lead.appointment_date)
+    d, t = get_french_datetime_strings_sms(lead.appointment_date)
+
     msg = (
         f"{COMPANY_NAME}\n"
-        f"{_name_header(lead)}RDV manqué à {t}. Une opportunité perdue pour votre situation en France. "
-        f"Rappelez le {COMPANY_PHONE} pour reprendre RDV rapidement."
+        f"{_name_header(lead)}RDV manque le {d} a {t}.\n"
+        f"Ne perdez pas cette opportunite.\n"
+        f"Appelez: {COMPANY_PHONE}"
     )
     return build_sms(msg)
 

@@ -11,7 +11,10 @@ from api.sms.templates.leads import (
     tpl_present_no_contract,
     tpl_contract_signed,
     tpl_confirm_presence,
-    tpl_dossier_status_updated,  # ✅ AJOUT
+    tpl_dossier_status_updated,
+    tpl_appointment_reminder_48h,
+    tpl_appointment_reminder_24h,
+
 )
 
 from api.sms.utils import build_sms, normalize_phone  # ✅ IMPORTANT
@@ -62,6 +65,16 @@ def send_appointment_confirmation_sms(lead) -> None:
         phone=lead.phone,
         message=message,
     )
+
+
+def send_appointment_reminder_48h_sms(lead) -> None:
+    message = tpl_appointment_reminder_48h(lead)
+    _send_sms(phone=lead.phone, message=message)
+
+
+def send_appointment_reminder_24h_sms(lead) -> None:
+    message = tpl_appointment_reminder_24h(lead)
+    _send_sms(phone=lead.phone, message=message)
 
 
 # ============================================================
