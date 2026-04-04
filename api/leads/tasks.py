@@ -1,3 +1,5 @@
+# api/leads/tasks.py
+
 from datetime import timedelta
 
 from django.utils import timezone
@@ -14,9 +16,19 @@ from api.leads.constants import (
     RDV_PLANIFIE,
 )
 
-from api.sms.tasks import send_absent_urgency_sms_task, send_appointment_reminder_sms_task, \
-    send_appointment_reminder_48h_sms_task, send_appointment_reminder_24h_sms_task
-from api.utils.email.leads.tasks import send_appointment_absent_email_task
+from api.sms.tasks import (
+    send_absent_urgency_sms_task,
+    send_appointment_reminder_sms_task,
+    send_appointment_reminder_48h_sms_task,
+    send_appointment_reminder_24h_sms_task,
+)
+from api.utils.email.leads.tasks import (
+    send_appointment_absent_email_task,
+    send_appointment_reminder_email_task,  # ✅ Import ajouté
+)
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def mark_missed_appointments_as_absent():
@@ -27,7 +39,11 @@ def mark_missed_appointments_as_absent():
 
     now = timezone.now()
 
-    absent_status = LeadStatus.objects.get(code=ABSENT)
+    try:
+        absent_status = LeadStatus.objects.get(code=ABSENT)
+    except LeadStatus.DoesNotExist:
+        logger.error("❌ Status ABSENT non trouvé dans la base")
+        return "0 leads updated - Status ABSENT missing"
 
     # 🔥 Tous les RDV passés NON présent et NON absent
     leads_qs = Lead.objects.filter(
@@ -40,6 +56,7 @@ def mark_missed_appointments_as_absent():
     lead_ids = list(leads_qs.values_list("id", flat=True))
 
     if not lead_ids:
+        logger.info("Aucun lead à marquer comme absent")
         return "0 leads updated"
 
     with transaction.atomic():
@@ -49,12 +66,9 @@ def mark_missed_appointments_as_absent():
     for lead_id in lead_ids:
         send_absent_urgency_sms_task(lead_id)
         send_appointment_absent_email_task(lead_id)
+        logger.info(f"📢 Notifications envoyées pour lead #{lead_id} (absent)")
 
     return f"{updated_count} leads marked as ABSENT + SMS + EMAIL sent"
-
-
-def send_appointment_reminder_email_task(id):
-    pass
 
 
 def send_appointment_reminders():
@@ -69,17 +83,15 @@ def send_appointment_reminders():
     now = timezone.now()
 
     reminder_windows = [
-        (timedelta(hours=48), "48h"),
-        (timedelta(hours=24), "24h"),
+        (timedelta(hours=48), "48h", send_appointment_reminder_48h_sms_task),
+        (timedelta(hours=24), "24h", send_appointment_reminder_24h_sms_task),
     ]
 
     tolerance = timedelta(minutes=5)
     total_sent = 0
 
-    for delta, label in reminder_windows:
-
+    for delta, label, sms_task_func in reminder_windows:
         target_time = now + delta
-
         window_start = target_time - tolerance
         window_end = target_time + tolerance
 
@@ -90,25 +102,21 @@ def send_appointment_reminders():
         )
 
         for lead in leads:
-
             # 🔒 Anti doublon intelligent
             if lead.last_reminder_sent:
                 if (now - lead.last_reminder_sent) < timedelta(hours=20):
+                    logger.debug(f"Lead #{lead.id} - anti-doublon actif (rappel déjà envoyé)")
                     continue
 
-            # 🚀 SMS DIFFERENTS
-            if label == "48h":
-                send_appointment_reminder_48h_sms_task(lead.id)
-            else:
-                send_appointment_reminder_24h_sms_task(lead.id)
-
-            # 📧 EMAIL (tu peux aussi différencier si tu veux)
-            send_appointment_reminder_email_task(lead.id)
+            # 🚀 SMS + EMAIL
+            sms_task_func(lead.id)
+            send_appointment_reminder_email_task(lead.id)  # ✅ Maintenant fonctionnel
 
             # 🧠 tracking
             lead.last_reminder_sent = now
             lead.save(update_fields=["last_reminder_sent"])
 
             total_sent += 1
+            logger.info(f"✅ Rappel {label} envoyé (SMS+EMAIL) pour lead #{lead.id}")
 
-    return f"{total_sent} reminders sent"
+    return f"{total_sent} reminders sent (SMS+EMAIL)"
