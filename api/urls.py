@@ -15,6 +15,7 @@ api_urlpatterns = [
     path("receipts/", include("api.payments.urls")),
     # Services - liste des services (ex: titre de séjour, naturalisation, etc)
     path("services/", include("api.services.urls")),
+
     path("opening-hours/", include("api.opening_hours.urls")),
     path("special-closing-periods/", include("api.special_closing_period.urls")),
     path("specialclosing/", include("api.special_closing_period.urls")),
@@ -60,6 +61,9 @@ api_urlpatterns = [
     path("lead-events/", include("api.leads_events.urls")),
 
     path("v2/leads/", include("api.leads.urls_v2")),
+
+    # api/urls.py
+    path("whatsapp/", include("api.whatsapp.urls")),
 
 ]
 

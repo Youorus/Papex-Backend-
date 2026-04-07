@@ -1,4 +1,4 @@
-from api.sms.constants import COMPANY_NAME, COMPANY_ADDRESS_SHORT, COMPANY_PHONE, ACCESS_CODE
+from api.sms.constants import COMPANY_NAME, COMPANY_ADDRESS_SHORT, COMPANY_PHONE, ACCESS_CODE, COMPANY_PHONE_WA
 from api.sms.utils import get_lead_display_name, build_sms
 from api.sms.utils_datetime import get_french_datetime_strings_sms
 
@@ -42,26 +42,27 @@ def tpl_confirm_presence(lead) -> str:
     return build_sms(msg)
 
 def tpl_appointment_reminder_24h(lead) -> str:
+    """Modèle de rappel 24h avec CTA WhatsApp."""
     _, t = get_french_datetime_strings_sms(lead.appointment_date)
 
     msg = (
         f"{COMPANY_NAME}\n"
         f"{_name_header(lead)}RDV DEMAIN a {t}.\n"
-        f"Confirmez par appel sinon votre place peut etre liberee.\n"
-        f"{COMPANY_PHONE}"
+        f"Confirmez par WhatsApp pour garder votre place :\n"
+        f"{COMPANY_PHONE_WA}"
     )
     return build_sms(msg)
 
 def tpl_appointment_reminder_48h(lead) -> str:
+    """Modèle de rappel 48h avec CTA WhatsApp."""
     d, t = get_french_datetime_strings_sms(lead.appointment_date)
     msg = (
         f"{COMPANY_NAME}\n"
         f"{_name_header(lead)}RDV dans 48h {d} a {t}.\n"
-        f"Important pour votre situation.\n"
-        f"Appelez pour confirmer: {COMPANY_PHONE}"
+        f"Important pour votre dossier.\n"
+        f"Ecrivez-nous sur WhatsApp pour confirmer : {COMPANY_PHONE_WA}"
     )
     return build_sms(msg)
-
 
 def tpl_dossier_status_updated(lead) -> str:
     msg = (
