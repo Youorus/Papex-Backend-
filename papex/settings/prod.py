@@ -44,6 +44,7 @@ THIRD_PARTY_APPS = [
     "channels",
     "django_q",          # ✅ Django-Q2 remplace django_celery_beat + celery
     "django_filters",
+    "drf_spectacular",
     "rest_framework",
 ]
 
@@ -163,6 +164,7 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "PAGE_SIZE": 30,
 }
 
@@ -288,6 +290,19 @@ DATABASES["default"].update(
         "DISABLE_SERVER_SIDE_CURSORS": True,
     }
 )
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Papiers Express API",
+    "DESCRIPTION": "Documentation des endpoints de l'application Papex",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    # Tu peux choisir le style de Swagger
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayOperationId": True,
+    },
+}
 
 # -----------------------------------------------------------------------------
 # REDIS (uniquement pour Django Channels — WebSocket)
