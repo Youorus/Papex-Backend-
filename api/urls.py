@@ -1,4 +1,6 @@
-# api/urls.py
+"""
+api/urls.py
+"""
 
 from django.urls import include, path
 
@@ -40,11 +42,8 @@ api_urlpatterns = [
     path("auth/", include("api.custom_auth.urls")),
 
     path("jobs/", include("api.job.urls")),
-
     path("phone/", include("api.phone.urls")),
-
     path("candidates/", include("api.candidate.urls")),
-
     path("ping/", include("api.ping.urls")),
 
     path("lead-task-types/", include("api.leads_task_type.urls")),
@@ -52,19 +51,16 @@ api_urlpatterns = [
     # Lead Task Status
     path("lead-task-status/", include("api.leads_task_status.urls")),
 
-    # Lead Tasks
-    path("lead-tasks/", include("api.leads_task.urls")),
+    # Lead Tasks + Lead Task Comments (même router dans leads_task/urls.py)
+    path("", include("api.leads_task.urls")),
+
     # Lead Event Types
     path("lead-event-types/", include("api.leads_event_type.urls")),
-
     # Lead Events
     path("lead-events/", include("api.leads_events.urls")),
 
     path("v2/leads/", include("api.leads.urls_v2")),
-
-    # api/urls.py
     path("whatsapp/", include("api.whatsapp.urls")),
-
 ]
 
 urlpatterns = [

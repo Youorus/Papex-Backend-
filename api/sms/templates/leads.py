@@ -100,7 +100,7 @@ def tpl_present_no_contract(lead) -> str:
     msg = (
         f"{COMPANY_NAME}\n"
         f"{_name_header(lead)}Merci de votre visite.\n"
-        f"Notre Juriste reste à disposition pour lancer votre démarche en France.\n"
+        f"Ne retardez pas votre regularisation notre juriste reste à disposition pour lancer votre démarche pour vos papiers.\n"
         f"Tél : {COMPANY_PHONE}"
     )
     return build_sms(msg)
@@ -109,7 +109,8 @@ def tpl_present_no_contract(lead) -> str:
 def tpl_contract_signed(lead) -> str:
     msg = (
         f"{COMPANY_NAME}\n"
-        f"{_name_header(lead)}C'est parti ! Votre dossier est lancé.\n"
+        f"{_name_header(lead)} Felicitation ! Merci de votre confiance\n"
+        f"C'est parti ! Votre dossier est lancé.\n"
         f"Notre Juriste s'occupe de votre démarche en France."
     )
     return build_sms(msg)

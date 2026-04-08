@@ -1,19 +1,16 @@
 """
 api/leads_task/urls.py
-
-Routes API pour les tâches de leads.
 """
 
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from .views import LeadTaskViewSet
+from .views import LeadTaskViewSet, LeadTaskCommentViewSet
 
 router = DefaultRouter()
+router.register(r"lead-tasks", LeadTaskViewSet, basename="lead-tasks")
+router.register(r"lead-task-comments", LeadTaskCommentViewSet, basename="lead-task-comments")
 
-router.register(
-    r"",
-    LeadTaskViewSet,
-    basename="lead-task",
-)
-
-urlpatterns = router.urls
+urlpatterns = [
+    path("", include(router.urls)),
+]
