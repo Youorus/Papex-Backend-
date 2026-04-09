@@ -89,7 +89,6 @@ def create_absent_followup_tasks(limit_per_user_per_day=20):
                     f"Le client {lead.first_name} {lead.last_name} n'était pas présent "
                     f"à son rendez-vous du {lead.appointment_date.strftime('%d/%m/%Y à %H:%M')}.\n\n"
                     f"👉 Action : Recontacter pour reprogrammer un rendez-vous.\n"
-                    f"📌 Affectation : {assigned_user.get_full_name()} (Vague J+{days_offset})"
                 ),
                 due_at=scheduled_date,
                 assigned_to=assigned_user,
