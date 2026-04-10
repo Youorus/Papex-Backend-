@@ -12,7 +12,7 @@ from api.leads_task.models import LeadTask
 from api.leads_task_type.models import LeadTaskType
 from api.users.models import User
 from api.users.roles import UserRoles
-from api.leads_task.constants import LeadTaskStatus
+from api.leads_task.constants import LeadTaskStatus, LeadTaskPriority  # ✅ Ajout de LeadTaskPriority
 from api.leads.constants import (
     PRESENT,
     ABSENT,
@@ -71,7 +71,6 @@ def mark_missed_appointments_as_absent():
 
         # 🚀 Dispatch des notifications via Django-Q2
         for lead_id in lead_ids:
-            # ✅ Utilisation de async_task au lieu de l'appel direct ou .delay()
             async_task(send_absent_urgency_sms_task, lead_id)
             async_task(send_appointment_absent_email_task, lead_id)
             logger.info(f"📢 Notifications d'absence mises en file pour le lead #{lead_id}")
@@ -139,6 +138,7 @@ def create_absent_followup_tasks(limit_per_user_per_day=20):
                 due_at=scheduled_date,
                 assigned_to=agent,
                 status=LeadTaskStatus.TODO,
+                priority=LeadTaskPriority.MEDIUM,  # ✅ Fix : champ priority explicitement renseigné
             )
             created_count += 1
 
@@ -177,7 +177,6 @@ def send_appointment_reminders():
             if lead.last_reminder_sent and (now - lead.last_reminder_sent) < timedelta(hours=20):
                 continue
 
-            # ✅ CORRECTION : Remplacement de .delay() par async_task()
             async_task(sms_task_func, lead.id)
             async_task(send_appointment_reminder_email_task, lead.id)
 

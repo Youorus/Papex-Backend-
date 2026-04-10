@@ -1,82 +1,222 @@
+# api/whatsapp/views.py
 import logging
+from django.conf import settings
 from django.http import HttpResponse
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema
 
 from api.leads.models import Lead
 from api.lead_status.models import LeadStatus
 from api.leads.constants import RDV_CONFIRME
 
+from .models import WhatsAppMessage
+from .serializers import (
+    WhatsAppMessageSerializer,
+    ConversationPreviewSerializer,
+    SendMessageSerializer,
+)
+from .utils import get_lead_by_phone, normalize_phone_for_meta, send_whatsapp_message
+
 logger = logging.getLogger(__name__)
 
 
-@extend_schema(
-    tags=['WhatsApp'],
-    summary="Webhook WhatsApp (Vérification et Réception)",
-    description="Endpoint pour la validation Meta (GET) et la réception des messages utilisateurs (POST)."
-)
-@api_view(['GET', 'POST'])
+# ─────────────────────────────────────────────────────────────
+# WEBHOOK META  (GET = vérification / POST = réception)
+# ─────────────────────────────────────────────────────────────
+
+@api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def whatsapp_webhook(request):
-    """
-    Gestionnaire centralisé des interactions WhatsApp.
-    Identifie automatiquement le Lead par son numéro de téléphone.
-    """
 
-    # --- 1. VÉRIFICATION DU TOKEN (GET) ---
+    # ── GET : handshake Meta ──────────────────────────────────
     if request.method == "GET":
-        VERIFY_TOKEN = "papex_secret_2026"
-        mode = request.query_params.get("hub.mode")
-        token = request.query_params.get("hub.verify_token")
+        verify_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", "papex_secret_2026")
+        mode      = request.query_params.get("hub.mode")
+        token     = request.query_params.get("hub.verify_token")
         challenge = request.query_params.get("hub.challenge")
 
-        if mode == "subscribe" and token == VERIFY_TOKEN:
-            logger.info("✅ Webhook WhatsApp validé par Meta")
+        if mode == "subscribe" and token == verify_token:
+            logger.info("Webhook WhatsApp validé par Meta")
             return HttpResponse(challenge, status=200)
 
-        logger.warning("❌ Échec de validation du Webhook WhatsApp")
+        logger.warning("Échec validation Webhook WhatsApp")
         return HttpResponse("Forbidden", status=403)
 
-    # --- 2. RÉCEPTION DES MESSAGES (POST) ---
-    elif request.method == "POST":
-        data = request.data
+    # ── POST : messages entrants ──────────────────────────────
+    data = request.data
+    try:
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
+                value    = change.get("value", {})
+                messages = value.get("messages", [])
 
+                for msg in messages:
+                    _process_incoming_message(msg)
+
+        return HttpResponse("EVENT_RECEIVED", status=200)
+
+    except Exception as exc:
+        logger.error("Erreur Webhook WhatsApp : %s", exc)
+        # On retourne 200 quand même pour éviter que Meta désactive le webhook
+        return HttpResponse("EVENT_RECEIVED", status=200)
+
+
+def _process_incoming_message(msg: dict):
+    """Traite un message entrant Meta et le persiste en base."""
+    wa_phone  = msg.get("from", "")
+    text_body = msg.get("text", {}).get("body", "")
+    wa_id     = msg.get("id", "")
+
+    if not wa_id or not wa_phone:
+        return
+
+    # Idempotence : on ignore si déjà reçu
+    if WhatsAppMessage.objects.filter(wa_id=wa_id).exists():
+        return
+
+    lead = get_lead_by_phone(wa_phone)
+
+    # Persistance
+    WhatsAppMessage.objects.create(
+        wa_id=wa_id,
+        lead=lead,
+        sender_phone=wa_phone,
+        body=text_body,
+        is_outbound=False,
+        is_read=False,
+    )
+
+    logger.info(
+        "Message reçu de %s (lead: %s)",
+        wa_phone,
+        f"{lead.first_name} {lead.last_name}" if lead else "inconnu",
+    )
+
+    # ── Logique métier : auto-confirmation RDV ──────────────
+    if lead and ("oui" in text_body.lower() or "confirme" in text_body.lower()):
         try:
-            # Extraction sécurisée de la structure Meta
-            entries = data.get("entry", [])
-            for entry in entries:
-                changes = entry.get("changes", [])
-                for change in changes:
-                    value = change.get("value", {})
-                    messages = value.get("messages", [])
-
-                    for msg in messages:
-                        wa_phone = msg.get("from")  # Format: 336...
-                        text_body = msg.get("text", {}).get("body", "")
-                        wa_id = msg.get("id")
-
-                        # 🔍 Identification automatique du Lead
-                        # On cherche sur les 9 derniers chiffres pour ignorer le préfixe pays
-                        lead = Lead.objects.filter(phone__icontains=wa_phone[-9:]).first()
+            status_confirme = LeadStatus.objects.get(code=RDV_CONFIRME)
+            lead.status = status_confirme
+            lead.save(update_fields=["status"])
+            logger.info("Lead %s %s confirmé via WhatsApp", lead.first_name, lead.last_name)
+        except LeadStatus.DoesNotExist:
+            logger.error("LeadStatus RDV_CONFIRME introuvable")
 
 
-                        # 🧠 Logique métier : Auto-confirmation
-                        if lead and ("oui" in text_body.lower() or "confirme" in text_body.lower()):
-                            try:
-                                status_confirme = LeadStatus.objects.get(code=RDV_CONFIRME)
-                                lead.status = status_confirme
-                                lead.save(update_fields=['status'])
-                                logger.info(f"✅ Lead {lead.first_name} {lead.last_name} confirmé via WhatsApp")
-                            except LeadStatus.DoesNotExist:
-                                logger.error("Status RDV_CONFIRME manquant")
+# ─────────────────────────────────────────────────────────────
+# LISTE DES CONVERSATIONS
+# GET /api/whatsapp/conversations/
+# ─────────────────────────────────────────────────────────────
 
-            # Toujours renvoyer 200 à Meta pour éviter la désactivation du webhook
-            return HttpResponse("EVENT_RECEIVED", status=200)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def conversation_list(request):
+    """
+    Retourne la liste des Leads qui ont au moins un message WhatsApp,
+    triés par date du dernier message décroissante.
+    """
+    lead_ids = (
+        WhatsAppMessage.objects
+        .values_list("lead_id", flat=True)
+        .distinct()
+    )
+    leads = (
+        Lead.objects
+        .filter(id__in=lead_ids)
+        .prefetch_related("whatsapp_messages")
+        .order_by("-whatsapp_messages__timestamp")
+        .distinct()
+    )
+    serializer = ConversationPreviewSerializer(leads, many=True)
+    return Response(serializer.data)
 
-        except Exception as e:
-            logger.error(f"❌ Erreur Webhook WhatsApp : {str(e)}")
-            return HttpResponse("EVENT_RECEIVED", status=200)
 
-    return HttpResponse("Method Not Allowed", status=405)
+# ─────────────────────────────────────────────────────────────
+# MESSAGES D'UNE CONVERSATION
+# GET /api/whatsapp/conversations/<lead_id>/messages/
+# ─────────────────────────────────────────────────────────────
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def message_list(request, lead_id: int):
+    """
+    Retourne tous les messages d'un lead, dans l'ordre chronologique.
+    Marque automatiquement les messages entrants comme lus.
+    """
+    messages = WhatsAppMessage.objects.filter(lead_id=lead_id).order_by("timestamp")
+
+    # Marquer comme lus
+    messages.filter(is_outbound=False, is_read=False).update(is_read=True)
+
+    serializer = WhatsAppMessageSerializer(messages, many=True)
+    return Response(serializer.data)
+
+
+# ─────────────────────────────────────────────────────────────
+# ENVOYER UN MESSAGE
+# POST /api/whatsapp/send/
+# ─────────────────────────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def send_message(request):
+    """
+    Envoie un message texte à un lead via l'API Meta Cloud
+    et le persiste en base comme message sortant.
+    """
+    serializer = SendMessageSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    lead_id = serializer.validated_data["lead_id"]
+    body    = serializer.validated_data["body"]
+
+    try:
+        lead = Lead.objects.get(id=lead_id)
+    except Lead.DoesNotExist:
+        return Response({"detail": "Lead introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if not lead.phone:
+        return Response({"detail": "Ce lead n'a pas de numéro de téléphone."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Normalisation du numéro pour Meta
+    to_phone = normalize_phone_for_meta(lead.phone)
+
+    try:
+        meta_response = send_whatsapp_message(to_phone, body)
+    except Exception as exc:
+        logger.error("Échec envoi WhatsApp au lead %s : %s", lead_id, exc)
+        return Response(
+            {"detail": "Échec d'envoi via Meta.", "error": str(exc)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    # Persistance du message sortant
+    wa_id = meta_response.get("messages", [{}])[0].get("id", f"out_{lead_id}_{body[:8]}")
+    message = WhatsAppMessage.objects.create(
+        wa_id=wa_id,
+        lead=lead,
+        sender_phone=to_phone,
+        body=body,
+        is_outbound=True,
+        is_read=True,
+        delivery_status="sent",
+    )
+
+    return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+
+
+# ─────────────────────────────────────────────────────────────
+# MARQUER UNE CONVERSATION COMME LUE
+# POST /api/whatsapp/conversations/<lead_id>/read/
+# ─────────────────────────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mark_as_read(request, lead_id: int):
+    updated = WhatsAppMessage.objects.filter(
+        lead_id=lead_id, is_outbound=False, is_read=False
+    ).update(is_read=True)
+    return Response({"marked_read": updated})
