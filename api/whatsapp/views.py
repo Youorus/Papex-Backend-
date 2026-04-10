@@ -2,10 +2,9 @@
 import logging
 from django.conf import settings
 from django.http import HttpResponse
-from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from api.leads.models import Lead
@@ -25,14 +24,13 @@ logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────
 # WEBHOOK META  (GET = vérification / POST = réception)
+# AllowAny obligatoire — Meta ne s'authentifie pas
 # ─────────────────────────────────────────────────────────────
 
-@csrf_exempt
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def whatsapp_webhook(request):
 
-    # ── GET : handshake Meta ──────────────────────────────────
     if request.method == "GET":
         verify_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", "papex_secret_2026")
         mode      = request.query_params.get("hub.mode")
@@ -46,14 +44,11 @@ def whatsapp_webhook(request):
         logger.warning("Échec validation Webhook WhatsApp")
         return HttpResponse("Forbidden", status=403)
 
-    # ── POST : messages entrants ──────────────────────────────
-    data = request.data
     try:
-        for entry in data.get("entry", []):
+        for entry in request.data.get("entry", []):
             for change in entry.get("changes", []):
                 value    = change.get("value", {})
                 messages = value.get("messages", [])
-
                 for msg in messages:
                     _process_incoming_message(msg)
 
@@ -65,7 +60,6 @@ def whatsapp_webhook(request):
 
 
 def _process_incoming_message(msg: dict):
-    """Traite un message entrant Meta et le persiste en base."""
     wa_phone  = msg.get("from", "")
     text_body = msg.get("text", {}).get("body", "")
     wa_id     = msg.get("id", "")
@@ -104,8 +98,7 @@ def _process_incoming_message(msg: dict):
 
 
 # ─────────────────────────────────────────────────────────────
-# LISTE DES CONVERSATIONS
-# GET /api/whatsapp/conversations/
+# LISTE DES CONVERSATIONS — IsAuthenticated
 # ─────────────────────────────────────────────────────────────
 
 @api_view(["GET"])
@@ -128,8 +121,7 @@ def conversation_list(request):
 
 
 # ─────────────────────────────────────────────────────────────
-# MESSAGES D'UNE CONVERSATION
-# GET /api/whatsapp/conversations/<lead_id>/messages/
+# MESSAGES D'UNE CONVERSATION — IsAuthenticated
 # ─────────────────────────────────────────────────────────────
 
 @api_view(["GET"])
@@ -142,8 +134,7 @@ def message_list(request, lead_id: int):
 
 
 # ─────────────────────────────────────────────────────────────
-# ENVOYER UN MESSAGE
-# POST /api/whatsapp/send/
+# ENVOYER UN MESSAGE — IsAuthenticated
 # ─────────────────────────────────────────────────────────────
 
 @api_view(["POST"])
@@ -162,7 +153,10 @@ def send_message(request):
         return Response({"detail": "Lead introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
     if not lead.phone:
-        return Response({"detail": "Ce lead n'a pas de numéro de téléphone."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"detail": "Ce lead n'a pas de numéro de téléphone."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     to_phone = normalize_phone_for_meta(lead.phone)
 
@@ -190,8 +184,7 @@ def send_message(request):
 
 
 # ─────────────────────────────────────────────────────────────
-# MARQUER UNE CONVERSATION COMME LUE
-# POST /api/whatsapp/conversations/<lead_id>/read/
+# MARQUER COMME LU — IsAuthenticated
 # ─────────────────────────────────────────────────────────────
 
 @api_view(["POST"])
