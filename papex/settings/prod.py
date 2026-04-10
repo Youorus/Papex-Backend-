@@ -77,6 +77,7 @@ LOCAL_APPS = [
     "api.candidate",
     "api.leads_event_type",
     "api.leads_events",
+    "api.whatsapp",
     "api.leads_task_type",
     "api.leads_task_status",
     "api.leads_task",
