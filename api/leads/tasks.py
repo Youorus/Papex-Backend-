@@ -19,7 +19,7 @@ from api.leads.constants import (
     ABSENT,
     ANNULE,
     RDV_CONFIRME,
-    RDV_PLANIFIE,
+    RDV_PLANIFIE, WHATSAPP_ENVOYE, RDV_A_CONFIRMER,
 )
 
 from api.sms.tasks import (
@@ -160,7 +160,7 @@ def send_appointment_reminders():
         leads = Lead.objects.filter(
             appointment_date__gte=target_time - tolerance,
             appointment_date__lte=target_time + tolerance,
-            status__code__in=[RDV_CONFIRME, RDV_PLANIFIE],
+            status__code__in=[RDV_CONFIRME, RDV_PLANIFIE, WHATSAPP_ENVOYE, RDV_A_CONFIRMER],
         )
 
         for lead in leads:
