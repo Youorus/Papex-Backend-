@@ -3,11 +3,11 @@ import logging
 import json
 from django.conf import settings
 from django.http import HttpResponse
-from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from django.db.models import Max
 
 from api.leads.models import Lead
 from api.lead_status.models import LeadStatus
@@ -17,6 +17,7 @@ from .models import WhatsAppMessage
 from .serializers import (
     WhatsAppMessageSerializer,
     ConversationPreviewSerializer,
+    UnknownConversationSerializer,
     SendMessageSerializer,
 )
 from .utils import get_lead_by_phone, normalize_phone_for_meta, send_whatsapp_message
@@ -25,15 +26,13 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────
-# WEBHOOK META  (GET = vérification / POST = réception)
+# WEBHOOK META
 # ─────────────────────────────────────────────────────────────
 
-@csrf_exempt
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def whatsapp_webhook(request):
 
-    # ── GET : handshake Meta ──────────────────────────────────
     if request.method == "GET":
         verify_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", "papex_secret_2026")
         mode      = request.query_params.get("hub.mode")
@@ -46,10 +45,9 @@ def whatsapp_webhook(request):
             logger.info("✅ Webhook WhatsApp validé par Meta")
             return HttpResponse(challenge, status=200)
 
-        logger.warning("❌ Échec validation Webhook WhatsApp — token reçu: %s", token)
+        logger.warning("❌ Échec validation Webhook — token reçu: %s", token)
         return HttpResponse("Forbidden", status=403)
 
-    # ── POST : messages entrants ──────────────────────────────
     logger.info("📨 Webhook POST reçu de Meta")
     logger.info("📦 Payload brut : %s", json.dumps(request.data, ensure_ascii=False, indent=2))
 
@@ -61,7 +59,7 @@ def whatsapp_webhook(request):
                 messages = value.get("messages", [])
 
                 if not messages:
-                    logger.info("ℹ️  Pas de messages dans ce payload (statut de livraison ?)")
+                    logger.info("ℹ️  Pas de messages dans ce payload")
 
                 for msg in messages:
                     logger.info("💬 Message reçu : %s", json.dumps(msg, ensure_ascii=False))
@@ -75,7 +73,6 @@ def whatsapp_webhook(request):
 
 
 def _process_incoming_message(msg: dict):
-    """Traite un message entrant Meta et le persiste en base."""
     wa_phone  = msg.get("from", "")
     text_body = msg.get("text", {}).get("body", "")
     wa_id     = msg.get("id", "")
@@ -89,7 +86,7 @@ def _process_incoming_message(msg: dict):
         return
 
     lead = get_lead_by_phone(wa_phone)
-    logger.info("👤 Lead trouvé : %s", f"{lead.first_name} {lead.last_name}" if lead else "inconnu")
+    logger.info("👤 Lead : %s", f"{lead.first_name} {lead.last_name}" if lead else "inconnu")
 
     WhatsAppMessage.objects.create(
         wa_id=wa_id,
@@ -99,7 +96,7 @@ def _process_incoming_message(msg: dict):
         is_outbound=False,
         is_read=False,
     )
-    logger.info("✅ Message sauvegardé en base — lead=%s phone=%s body=%s", lead, wa_phone, text_body)
+    logger.info("✅ Message sauvegardé — phone=%s body=%s", wa_phone, text_body)
 
     if lead and ("oui" in text_body.lower() or "confirme" in text_body.lower()):
         try:
@@ -119,35 +116,95 @@ def _process_incoming_message(msg: dict):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def conversation_list(request):
-    from django.db.models import Max
+    """
+    Retourne deux listes fusionnées :
+    - Les leads connus qui ont des messages WhatsApp
+    - Les numéros inconnus (lead=null) groupés par sender_phone
+    """
 
-    lead_ids_ordered = (
-        WhatsAppMessage.objects
-        .filter(lead__isnull=False)
-        .order_by("-timestamp")
-        .values_list("lead_id", flat=True)
-        .distinct()
-    )
+    # ── 1. Conversations avec lead connu ─────────────────────
     leads = (
         Lead.objects
-        .filter(id__in=lead_ids_ordered)
+        .filter(whatsapp_messages__isnull=False)
         .annotate(last_msg_time=Max("whatsapp_messages__timestamp"))
         .order_by("-last_msg_time")
         .prefetch_related("whatsapp_messages")
+        .distinct()
     )
-    serializer = ConversationPreviewSerializer(leads, many=True)
-    return Response(serializer.data)
+    known = ConversationPreviewSerializer(leads, many=True).data
+
+    # ── 2. Conversations avec numéros inconnus ────────────────
+    unknown_phones = (
+        WhatsAppMessage.objects
+        .filter(lead__isnull=True)
+        .values("sender_phone")
+        .annotate(last_msg_time=Max("timestamp"))
+        .order_by("-last_msg_time")
+    )
+
+    unknown = []
+    for entry in unknown_phones:
+        phone = entry["sender_phone"]
+        last_msg = (
+            WhatsAppMessage.objects
+            .filter(lead__isnull=True, sender_phone=phone)
+            .order_by("-timestamp")
+            .first()
+        )
+        unread = WhatsAppMessage.objects.filter(
+            lead__isnull=True, sender_phone=phone, is_outbound=False, is_read=False
+        ).count()
+        unknown.append({
+            "id": None,
+            "sender_phone": phone,
+            "first_name": "Inconnu",
+            "last_name": phone,
+            "phone": phone,
+            "last_message": WhatsAppMessageSerializer(last_msg).data if last_msg else None,
+            "unread_count": unread,
+            "is_unknown": True,
+        })
+
+    # ── 3. Fusion triée par date du dernier message ───────────
+    from datetime import datetime
+
+    def get_ts(conv):
+        lm = conv.get("last_message")
+        if lm and lm.get("timestamp"):
+            return lm["timestamp"]
+        return ""
+
+    all_conversations = sorted(
+        list(known) + unknown,
+        key=get_ts,
+        reverse=True,
+    )
+
+    return Response(all_conversations)
 
 
 # ─────────────────────────────────────────────────────────────
 # MESSAGES D'UNE CONVERSATION
 # GET /api/whatsapp/conversations/<lead_id>/messages/
+# GET /api/whatsapp/conversations/unknown/<phone>/messages/
 # ─────────────────────────────────────────────────────────────
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def message_list(request, lead_id: int):
     messages = WhatsAppMessage.objects.filter(lead_id=lead_id).order_by("timestamp")
+    messages.filter(is_outbound=False, is_read=False).update(is_read=True)
+    serializer = WhatsAppMessageSerializer(messages, many=True)
+    return Response(serializer.data)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def message_list_unknown(request, phone: str):
+    """Messages d'un numéro inconnu (sans lead associé)."""
+    messages = WhatsAppMessage.objects.filter(
+        lead__isnull=True, sender_phone=phone
+    ).order_by("timestamp")
     messages.filter(is_outbound=False, is_read=False).update(is_read=True)
     serializer = WhatsAppMessageSerializer(messages, many=True)
     return Response(serializer.data)
@@ -165,29 +222,33 @@ def send_message(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    lead_id = serializer.validated_data["lead_id"]
+    lead_id = serializer.validated_data.get("lead_id")
+    phone   = serializer.validated_data.get("phone")
     body    = serializer.validated_data["body"]
 
-    try:
-        lead = Lead.objects.get(id=lead_id)
-    except Lead.DoesNotExist:
-        return Response({"detail": "Lead introuvable."}, status=status.HTTP_404_NOT_FOUND)
-
-    if not lead.phone:
-        return Response({"detail": "Ce lead n'a pas de numéro de téléphone."}, status=status.HTTP_400_BAD_REQUEST)
-
-    to_phone = normalize_phone_for_meta(lead.phone)
+    # Résolution du numéro destinataire
+    lead = None
+    if lead_id:
+        try:
+            lead = Lead.objects.get(id=lead_id)
+            to_phone = normalize_phone_for_meta(lead.phone)
+        except Lead.DoesNotExist:
+            return Response({"detail": "Lead introuvable."}, status=status.HTTP_404_NOT_FOUND)
+    elif phone:
+        to_phone = normalize_phone_for_meta(phone)
+    else:
+        return Response({"detail": "lead_id ou phone requis."}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         meta_response = send_whatsapp_message(to_phone, body)
     except Exception as exc:
-        logger.error("Échec envoi WhatsApp au lead %s : %s", lead_id, exc)
+        logger.error("Échec envoi WhatsApp : %s", exc)
         return Response(
             {"detail": "Échec d'envoi via Meta.", "error": str(exc)},
             status=status.HTTP_502_BAD_GATEWAY,
         )
 
-    wa_id = meta_response.get("messages", [{}])[0].get("id", f"out_{lead_id}_{body[:8]}")
+    wa_id = meta_response.get("messages", [{}])[0].get("id", f"out_{to_phone}_{body[:8]}")
     message = WhatsAppMessage.objects.create(
         wa_id=wa_id,
         lead=lead,
@@ -202,8 +263,7 @@ def send_message(request):
 
 
 # ─────────────────────────────────────────────────────────────
-# MARQUER UNE CONVERSATION COMME LUE
-# POST /api/whatsapp/conversations/<lead_id>/read/
+# MARQUER COMME LU
 # ─────────────────────────────────────────────────────────────
 
 @api_view(["POST"])
@@ -211,5 +271,14 @@ def send_message(request):
 def mark_as_read(request, lead_id: int):
     updated = WhatsAppMessage.objects.filter(
         lead_id=lead_id, is_outbound=False, is_read=False
+    ).update(is_read=True)
+    return Response({"marked_read": updated})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def mark_as_read_unknown(request, phone: str):
+    updated = WhatsAppMessage.objects.filter(
+        lead__isnull=True, sender_phone=phone, is_outbound=False, is_read=False
     ).update(is_read=True)
     return Response({"marked_read": updated})

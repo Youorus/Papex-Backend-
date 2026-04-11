@@ -4,7 +4,8 @@ from itertools import cycle
 
 from django.utils import timezone
 from django.db import transaction
-from django_q.tasks import async_task  # ✅ Import crucial pour Django-Q2
+from django.core.mail import EmailMultiAlternatives
+from django_q.tasks import async_task
 
 from api.leads.models import Lead
 from api.lead_status.models import LeadStatus
@@ -12,7 +13,7 @@ from api.leads_task.models import LeadTask
 from api.leads_task_type.models import LeadTaskType
 from api.users.models import User
 from api.users.roles import UserRoles
-from api.leads_task.constants import LeadTaskStatus, LeadTaskPriority  # ✅ Ajout de LeadTaskPriority
+from api.leads_task.constants import LeadTaskStatus, LeadTaskPriority
 from api.leads.constants import (
     PRESENT,
     ABSENT,
@@ -21,7 +22,6 @@ from api.leads.constants import (
     RDV_PLANIFIE,
 )
 
-# Notifications imports
 from api.sms.tasks import (
     send_absent_urgency_sms_task,
     send_appointment_reminder_48h_sms_task,
@@ -34,15 +34,15 @@ from api.utils.email.leads.tasks import (
 
 logger = logging.getLogger(__name__)
 
+# ⚙️ Adresse email du rapport journalier — modifie ici
+RAPPORT_EMAIL = "marc.takoumba@papiers-express.fr"
+
 
 # =========================================================
 # 1. GESTION DES ABSENCES (DÉTECTION + NOTIFICATION)
 # =========================================================
 
 def mark_missed_appointments_as_absent():
-    """
-    Détecte intelligemment TOUS les RDV passés non honorés.
-    """
     now = timezone.now()
 
     try:
@@ -51,7 +51,6 @@ def mark_missed_appointments_as_absent():
         logger.error("❌ Status ABSENT non trouvé dans la base")
         return "0 leads updated - Status ABSENT missing"
 
-    # On cible ce qui est dans le passé et non traité
     leads_qs = Lead.objects.filter(
         appointment_date__isnull=False,
         appointment_date__lt=now,
@@ -69,7 +68,6 @@ def mark_missed_appointments_as_absent():
         with transaction.atomic():
             updated_count = leads_qs.update(status=absent_status)
 
-        # 🚀 Dispatch des notifications via Django-Q2
         for lead_id in lead_ids:
             async_task(send_absent_urgency_sms_task, lead_id)
             async_task(send_appointment_absent_email_task, lead_id)
@@ -87,9 +85,6 @@ def mark_missed_appointments_as_absent():
 # =========================================================
 
 def create_absent_followup_tasks(limit_per_user_per_day=20):
-    """
-    Crée des tâches de relance internes pour l'équipe ACCUEIL.
-    """
     now = timezone.now()
 
     task_type, _ = LeadTaskType.objects.get_or_create(
@@ -121,7 +116,6 @@ def create_absent_followup_tasks(limit_per_user_per_day=20):
     num_agents = len(accueil_users)
     user_pool = cycle(accueil_users)
     daily_capacity = num_agents * limit_per_user_per_day
-
     created_count = 0
 
     with transaction.atomic():
@@ -138,7 +132,7 @@ def create_absent_followup_tasks(limit_per_user_per_day=20):
                 due_at=scheduled_date,
                 assigned_to=agent,
                 status=LeadTaskStatus.TODO,
-                priority=LeadTaskPriority.MEDIUM,  # ✅ Fix : champ priority explicitement renseigné
+                priority=LeadTaskPriority.MEDIUM,
             )
             created_count += 1
 
@@ -150,11 +144,8 @@ def create_absent_followup_tasks(limit_per_user_per_day=20):
 # =========================================================
 
 def send_appointment_reminders():
-    """
-    Envoie des rappels automatiques (SMS+EMAIL) 48h et 24h avant le rendez-vous.
-    """
     now = timezone.now()
-    tolerance = timedelta(minutes=10)  # Fenêtre de tir
+    tolerance = timedelta(minutes=10)
 
     reminder_windows = [
         (timedelta(hours=48), "48h", send_appointment_reminder_48h_sms_task),
@@ -173,14 +164,12 @@ def send_appointment_reminders():
         )
 
         for lead in leads:
-            # Sécurité anti-doublon (20h)
             if lead.last_reminder_sent and (now - lead.last_reminder_sent) < timedelta(hours=20):
                 continue
 
             async_task(sms_task_func, lead.id)
             async_task(send_appointment_reminder_email_task, lead.id)
 
-            # Mise à jour du timestamp pour éviter les doublons au prochain cycle
             lead.last_reminder_sent = now
             lead.save(update_fields=["last_reminder_sent"])
 
@@ -188,3 +177,165 @@ def send_appointment_reminders():
             logger.info(f"✅ Rappel {label} mis en file pour le lead #{lead.id}")
 
     return f"{total_sent} reminders sent"
+
+
+# =========================================================
+# 4. RAPPORT JOURNALIER
+# =========================================================
+
+def send_daily_report():
+    """
+    Envoie un rapport journalier à RAPPORT_EMAIL avec :
+    - Les leads passés en ABSENT dans les dernières 24h
+    - Les leads qui ont reçu un rappel dans les dernières 24h
+    Planifier ce job tous les jours à 20h00 dans Django-Q.
+    """
+    now = timezone.now()
+    since = now - timedelta(hours=24)
+    today_str = now.strftime("%d/%m/%Y")
+
+    # ── Absents détectés aujourd'hui ─────────────────────────
+    absents = Lead.objects.filter(
+        status__code=ABSENT,
+        appointment_date__gte=since,
+        appointment_date__lt=now,
+    ).select_related("status")
+
+    absents_data = [
+        {
+            "name": f"{l.first_name} {l.last_name}",
+            "phone": l.phone or "—",
+            "email": l.email or "—",
+            "appointment_date": l.appointment_date.strftime("%d/%m/%Y à %H:%M") if l.appointment_date else "—",
+        }
+        for l in absents
+    ]
+
+    # ── Rappels envoyés aujourd'hui ───────────────────────────
+    rappels = Lead.objects.filter(
+        last_reminder_sent__gte=since,
+        last_reminder_sent__lte=now,
+    ).select_related("status")
+
+    rappels_data = [
+        {
+            "name": f"{l.first_name} {l.last_name}",
+            "phone": l.phone or "—",
+            "email": l.email or "—",
+            "appointment_date": l.appointment_date.strftime("%d/%m/%Y à %H:%M") if l.appointment_date else "—",
+            "status": l.status.label if l.status else "—",
+        }
+        for l in rappels
+    ]
+
+    stats = {
+        "total_absents": len(absents_data),
+        "total_rappels": len(rappels_data),
+        "date": today_str,
+        "heure": now.strftime("%H:%M"),
+    }
+
+    logger.info(
+        "📊 Rapport journalier : %d absents, %d rappels",
+        stats["total_absents"], stats["total_rappels"],
+    )
+
+    html = _build_report_html(stats, absents_data, rappels_data)
+
+    try:
+        msg = EmailMultiAlternatives(
+            subject=f"📊 Rapport journalier Papiers Express – {today_str}",
+            body=f"Rapport du {today_str} : {stats['total_absents']} absents, {stats['total_rappels']} rappels.",
+            from_email="Papiers Express <noreply@papiers-express.fr>",
+            to=[RAPPORT_EMAIL],
+        )
+        msg.attach_alternative(html, "text/html")
+        msg.send()
+        logger.info("✅ Rapport journalier envoyé à %s", RAPPORT_EMAIL)
+        return f"Rapport envoyé : {stats['total_absents']} absents, {stats['total_rappels']} rappels"
+    except Exception as e:
+        logger.error("❌ Erreur envoi rapport : %s", str(e))
+        return f"Erreur : {str(e)}"
+
+
+def _build_report_html(stats: dict, absents: list, rappels: list) -> str:
+
+    def _rows(data: list, cols: list) -> str:
+        if not data:
+            return f'<tr><td colspan="{len(cols)}" style="text-align:center;color:#888;padding:12px">Aucun</td></tr>'
+        rows = ""
+        for i, row in enumerate(data):
+            bg = "#f9f9f9" if i % 2 == 0 else "#ffffff"
+            cells = "".join(
+                f'<td style="padding:8px 12px;border-bottom:1px solid #eee">{row.get(c, "—")}</td>'
+                for c in cols
+            )
+            rows += f'<tr style="background:{bg}">{cells}</tr>'
+        return rows
+
+    absent_rows = _rows(absents, ["name", "phone", "email", "appointment_date"])
+    rappel_rows = _rows(rappels, ["name", "phone", "email", "appointment_date", "status"])
+
+    return f"""<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;color:#333">
+
+  <div style="background:#1a1a2e;color:white;padding:24px;border-radius:10px 10px 0 0;text-align:center">
+    <h1 style="margin:0;font-size:22px">📊 Rapport Journalier</h1>
+    <p style="margin:8px 0 0;opacity:0.8">Papiers Express – {stats['date']} à {stats['heure']}</p>
+  </div>
+
+  <div style="display:flex;border:1px solid #eee;border-top:none">
+    <div style="flex:1;padding:20px;text-align:center;border-right:1px solid #eee">
+      <div style="font-size:36px;font-weight:bold;color:#ff4d4f">{stats['total_absents']}</div>
+      <div style="color:#666;font-size:14px;margin-top:4px">Absents détectés</div>
+    </div>
+    <div style="flex:1;padding:20px;text-align:center">
+      <div style="font-size:36px;font-weight:bold;color:#1677ff">{stats['total_rappels']}</div>
+      <div style="color:#666;font-size:14px;margin-top:4px">Rappels envoyés</div>
+    </div>
+  </div>
+
+  <div style="margin-top:24px">
+    <h2 style="font-size:16px;border-left:4px solid #ff4d4f;padding-left:10px;margin-bottom:12px">
+      ❌ Leads absents ({stats['total_absents']})
+    </h2>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#fff1f0;color:#cf1322">
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #ffa39e">Nom</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #ffa39e">Téléphone</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #ffa39e">Email</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #ffa39e">Date RDV</th>
+        </tr>
+      </thead>
+      <tbody>{absent_rows}</tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:24px">
+    <h2 style="font-size:16px;border-left:4px solid #1677ff;padding-left:10px;margin-bottom:12px">
+      🔔 Rappels envoyés ({stats['total_rappels']})
+    </h2>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#e6f4ff;color:#0958d9">
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #91caff">Nom</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #91caff">Téléphone</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #91caff">Email</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #91caff">Date RDV</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #91caff">Statut</th>
+        </tr>
+      </thead>
+      <tbody>{rappel_rows}</tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:32px;padding:16px;background:#f5f5f5;border-radius:0 0 10px 10px;text-align:center;font-size:12px;color:#999">
+    Papiers Express – 39 rue Navier, 75017 Paris<br>
+    Rapport généré automatiquement tous les jours à 20h00.
+  </div>
+
+</body>
+</html>"""
