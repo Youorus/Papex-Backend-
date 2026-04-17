@@ -145,7 +145,9 @@ AUTHENTICATION_BACKENDS = [
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+WHATSAPP_AGENT_ENABLED = os.getenv("WHATSAPP_AGENT_ENABLED", "False").lower() == "true"
+
 
 # -----------------------------------------------------------------------------
 # I18N
