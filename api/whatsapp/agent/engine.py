@@ -1,12 +1,5 @@
 """
-Moteur conversationnel optimisé — Agent Sarah (Papier Express).
-
-Optimisations appliquées :
-- Client Gemini instancié UNE seule fois (singleton) → évite N reconnexions/conversation
-- Requêtes BDD avec only() → charge uniquement les champs nécessaires
-- select_related sur lead pour éviter les N+1
-- Historique tronqué intelligemment par tokens estimés (pas juste par nombre de messages)
-- Gestion propre des types de messages entrants
+Moteur conversationnel — Agent Kemora (Papiers Express).
 """
 
 import json
@@ -21,18 +14,13 @@ from .prompt import (
     LEAD_DATA_MARKER,
     LEAD_DATA_END,
 )
+from ..models import WhatsAppMessage, WhatsAppConversationSettings
 
 logger = logging.getLogger(__name__)
 
-# ─── Config ──────────────────────────────────────────────────────────────────
-
-MAX_HISTORY_MESSAGES = 15          # 15 derniers échanges suffisent pour le contexte
-MAX_HISTORY_CHARS = 6_000          # Garde un budget tokens raisonnable
-SYSTEM_PROMPT_CACHED = SYSTEM_PROMPT  # Référence constante — pas reconstruite à chaque appel
-
-# ─── Singleton Gemini client ─────────────────────────────────────────────────
-# Le client est instancié une seule fois au démarrage du worker Django.
-# Cela évite de créer une nouvelle connexion HTTP à chaque message entrant.
+MAX_HISTORY_MESSAGES = 15
+MAX_HISTORY_CHARS = 6_000
+SYSTEM_PROMPT_CACHED = SYSTEM_PROMPT
 
 _gemini_client = None
 
@@ -52,42 +40,26 @@ def _get_gemini_client():
 def _get_model_name() -> str:
     return (
         GEMINI_MODEL_OVERRIDE
-        or getattr(settings, "GEMINI_MODEL", "gemini-2.5-pro-preview-05-06")
+        or getattr(settings, "GEMINI_MODEL", "gemini-2.5-pro")
     )
 
 
-# ─── Formatage historique ─────────────────────────────────────────────────────
-
 def _format_history(messages) -> str:
-    """
-    Formate les messages en texte, en tronquant si trop long.
-    Utilise only() pour ne charger que body + is_outbound depuis la BDD.
-    """
     lines = []
     total_chars = 0
-
     for msg in messages:
-        role = "Sarah" if msg.is_outbound else "Client"
+        role = "Kemora" if msg.is_outbound else "Client"
         body = msg.body or ""
-
-        # Retirer les marqueurs techniques dans les anciens messages
         if LEAD_DATA_MARKER in body:
             body = body[:body.index(LEAD_DATA_MARKER)].strip()
-
-        # Tronquer les messages individuels très longs (ex: copier-coller de documents)
         if len(body) > 500:
             body = body[:500] + "…"
-
         line = f"{role}: {body}"
         total_chars += len(line)
-
-        # Stop si on dépasse le budget caractères
         if total_chars > MAX_HISTORY_CHARS:
-            lines.append("[... historique tronqué ...]")
+            lines.append("[historique tronqué]")
             break
-
         lines.append(line)
-
     return "\n".join(lines)
 
 
@@ -95,37 +67,47 @@ def _build_prompt(
     incoming_message: str,
     history_text: str,
     lead_first_name: Optional[str] = None,
-    message_type: str = "text",
+    first_contact: bool = True,
 ) -> str:
     """
-    Construit le prompt final.
-    Le system prompt est une constante — pas reconstruite à chaque appel.
+    Construit le prompt avec contexte clair sur l'état de la conversation.
+    Le paramètre first_contact est crucial pour éviter les re-présentations.
     """
     context_parts = []
 
     # Contexte CRM
     if lead_first_name:
-        context_parts.append(
-            f"[CRM: client connu, prénom = {lead_first_name}]"
-        )
+        context_parts.append(f"[CRM: client connu, prénom = {lead_first_name}]")
     else:
         context_parts.append("[CRM: client inconnu, non enregistré]")
 
+    # Contexte conversation — LE POINT CLÉ
+    if first_contact:
+        context_parts.append(
+            "[ÉTAT CONVERSATION: PREMIER CONTACT — c'est le tout premier message de cette personne. "
+            "Tu dois te présenter brièvement : 'Bonjour, je suis Kemora du cabinet Papiers Express...' "
+            "puis demander comment tu peux aider.]"
+        )
+    else:
+        context_parts.append(
+            "[ÉTAT CONVERSATION: CONVERSATION EN COURS — tu t'es déjà présenté. "
+            "NE PAS dire 'Bonjour', NE PAS te représenter. "
+            "Continue la conversation naturellement comme si tu parlais déjà avec cette personne.]"
+        )
+
     # Historique
     if history_text:
-        context_parts.append(f"=== Historique ===\n{history_text}")
+        context_parts.append(f"=== Historique de la conversation ===\n{history_text}")
     else:
-        context_parts.append("[Première prise de contact]")
+        context_parts.append("[Pas d'historique]")
 
     # Message entrant
-    context_parts.append(f"=== Message du client ===\n{incoming_message}")
-    context_parts.append("=== Réponse de Sarah ===")
+    context_parts.append(f"=== Nouveau message du client ===\n{incoming_message}")
+    context_parts.append("=== Réponse de Kemora (continue naturellement) ===")
 
     context = "\n\n".join(context_parts)
     return f"{SYSTEM_PROMPT_CACHED}\n\n---\n\n{context}"
 
-
-# ─── Extraction et création lead ─────────────────────────────────────────────
 
 def _extract_lead_data(text: str) -> Optional[dict]:
     if LEAD_DATA_MARKER not in text:
@@ -151,16 +133,11 @@ def _strip_lead_marker(text: str) -> str:
 
 
 def _create_lead_from_data(data: dict, sender_phone: str) -> Optional[object]:
-    """
-    Crée un Lead en BDD à partir des données collectées par Sarah.
-    Toutes les requêtes sont regroupées pour minimiser les aller-retours BDD.
-    """
     try:
         from api.leads.models import Lead
         from api.lead_status.models import LeadStatus
         from api.leads.constants import RDV_PLANIFIE
         from api.clients.models import Client
-        from whatsapp.models import WhatsAppConversationSettings, WhatsAppMessage
 
         first_name = (data.get("first_name") or "").strip().capitalize()
         last_name = (data.get("last_name") or "").strip().capitalize()
@@ -172,19 +149,16 @@ def _create_lead_from_data(data: dict, sender_phone: str) -> Optional[object]:
         phone = (data.get("phone") or "").strip() or sender_phone
         email = (data.get("email") or "").strip() or None
 
-        # Vérif doublon — une seule requête
         existing = Lead.objects.filter(phone=phone).first()
         if existing:
             logger.info("Lead déjà existant pour phone=%s", phone)
             return existing
 
-        # Statut par défaut — mis en cache local si appelé souvent
         try:
             default_status = LeadStatus.objects.get(code=RDV_PLANIFIE)
         except LeadStatus.DoesNotExist:
             default_status = LeadStatus.objects.first()
 
-        # Création atomique
         lead = Lead.objects.create(
             first_name=first_name,
             last_name=last_name,
@@ -193,7 +167,6 @@ def _create_lead_from_data(data: dict, sender_phone: str) -> Optional[object]:
             status=default_status,
         )
 
-        # Opérations liées en bulk
         Client.objects.get_or_create(lead=lead)
 
         WhatsAppMessage.objects.filter(
@@ -201,7 +174,6 @@ def _create_lead_from_data(data: dict, sender_phone: str) -> Optional[object]:
             sender_phone=sender_phone,
         ).update(lead=lead)
 
-        # Migration settings agent (optionnel)
         try:
             old = WhatsAppConversationSettings.objects.get(
                 lead__isnull=True, sender_phone=sender_phone
@@ -214,52 +186,37 @@ def _create_lead_from_data(data: dict, sender_phone: str) -> Optional[object]:
         except WhatsAppConversationSettings.DoesNotExist:
             pass
 
-        logger.info("🎉 Lead créé : %s %s (phone=%s)", first_name, last_name, phone)
+        logger.info("Lead créé : %s %s (phone=%s)", first_name, last_name, phone)
         return lead
 
     except Exception as exc:
-        logger.exception("Erreur création lead automatique : %s", exc)
+        logger.exception("Erreur création lead : %s", exc)
         return None
 
-
-# ─── Point d'entrée principal ─────────────────────────────────────────────────
 
 def generate_agent_reply(
     incoming_message: str,
     lead=None,
     sender_phone: Optional[str] = None,
-    message_type: str = "text",
+    first_contact: bool = True,
 ) -> Optional[Tuple[str, Optional[object]]]:
     """
-    Génère la réponse de Sarah.
-
-    Optimisations :
-    - Client Gemini singleton (pas de reconnexion)
-    - BDD : only(body, is_outbound) pour l'historique
-    - Historique tronqué par budget chars
+    Génère la réponse de Kemora.
 
     Args:
-        incoming_message: texte du message entrant (déjà extrait)
-        lead: instance Lead ou None
-        sender_phone: numéro WhatsApp expéditeur
-        message_type: "text", "image", "audio", "video", "document", "sticker"
-
-    Returns:
-        (reply_text_clean, new_lead_or_none) ou None en cas d'erreur
+        first_contact: True = premier message → Kemora se présente.
+                       False = conversation en cours → pas de re-présentation.
     """
-    # ── Chargement historique optimisé ────────────────────────────────────────
     history_text = ""
     lead_first_name = None
 
     try:
-        from whatsapp.models import WhatsAppMessage
-
         if lead:
             lead_first_name = lead.first_name
             qs = (
                 WhatsAppMessage.objects
                 .filter(lead=lead)
-                .only("body", "is_outbound", "timestamp")   # Charge uniquement les champs utiles
+                .only("body", "is_outbound", "timestamp")
                 .order_by("-timestamp")[:MAX_HISTORY_MESSAGES]
             )
         elif sender_phone:
@@ -278,15 +235,13 @@ def generate_agent_reply(
     except Exception as exc:
         logger.warning("Chargement historique échoué : %s", exc)
 
-    # ── Construction prompt ───────────────────────────────────────────────────
     prompt = _build_prompt(
         incoming_message=incoming_message,
         history_text=history_text,
         lead_first_name=lead_first_name,
-        message_type=message_type,
+        first_contact=first_contact,
     )
 
-    # ── Appel Gemini ──────────────────────────────────────────────────────────
     try:
         client = _get_gemini_client()
         model_name = _get_model_name()
@@ -301,7 +256,6 @@ def generate_agent_reply(
             logger.warning("Gemini a retourné une réponse vide")
             return None
 
-        # ── Extraction lead si collecté ───────────────────────────────────────
         lead_data = _extract_lead_data(full_reply)
         new_lead = None
         if lead_data and not lead:
@@ -309,8 +263,8 @@ def generate_agent_reply(
 
         clean_reply = _strip_lead_marker(full_reply)
         logger.info(
-            "Réponse générée — modèle=%s chars=%d lead_créé=%s",
-            model_name, len(clean_reply), bool(new_lead)
+            "Kemora a répondu — modèle=%s first_contact=%s chars=%d",
+            model_name, first_contact, len(clean_reply)
         )
         return clean_reply, new_lead
 
