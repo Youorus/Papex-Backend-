@@ -122,25 +122,57 @@ def _process_status_update(st: dict):
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def whatsapp_webhook(request):
+    logger.info("WEBHOOK HIT | method=%s | path=%s", request.method, request.path)
+
     if request.method == "GET":
         verify_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", "papex_secret_2026")
         mode = request.query_params.get("hub.mode")
         token = request.query_params.get("hub.verify_token")
         challenge = request.query_params.get("hub.challenge")
+
+        logger.info(
+            "Webhook verification request | mode=%s | token=%s | challenge=%s",
+            mode, token, challenge
+        )
+
         if mode == "subscribe" and token == verify_token:
+            logger.info("Webhook verification SUCCESS")
             return _no_cache(HttpResponse(challenge, status=200))
+
+        logger.warning("Webhook verification FAILED")
         return _no_cache(HttpResponse("Forbidden", status=403))
 
-    data = request.data
     try:
+        logger.info("Webhook POST received")
+        logger.info("Webhook raw payload: %s", json.dumps(request.data, ensure_ascii=False))
+
+        data = request.data
+
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
+                field = change.get("field")
                 value = change.get("value", {})
-                for msg in value.get("messages", []):
+
+                logger.info("Webhook change field=%s", field)
+
+                messages = value.get("messages", [])
+                statuses = value.get("statuses", [])
+
+                logger.info(
+                    "Webhook content | messages=%d | statuses=%d",
+                    len(messages), len(statuses)
+                )
+
+                for msg in messages:
+                    logger.info("Incoming message payload: %s", json.dumps(msg, ensure_ascii=False))
                     _process_incoming_message(msg)
-                for st in value.get("statuses", []):
+
+                for st in statuses:
+                    logger.info("Incoming status payload: %s", json.dumps(st, ensure_ascii=False))
                     _process_status_update(st)
+
         return _no_cache(HttpResponse("EVENT_RECEIVED", status=200))
+
     except Exception as exc:
         logger.exception("Erreur Webhook WhatsApp : %s", exc)
         return _no_cache(HttpResponse("EVENT_RECEIVED", status=200))
