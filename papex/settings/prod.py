@@ -143,6 +143,10 @@ AUTHENTICATION_BACKENDS = [
     "api.custom_auth.authentication.EmailBackend",
 ]
 
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
 # -----------------------------------------------------------------------------
 # I18N
 # -----------------------------------------------------------------------------

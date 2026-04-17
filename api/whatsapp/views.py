@@ -15,10 +15,11 @@ from api.leads.constants import RDV_CONFIRME
 from api.lead_status.models import LeadStatus
 from api.leads.models import Lead
 
-from .models import WhatsAppMessage
+from .models import WhatsAppMessage, WhatsAppConversationSettings
 from .serializers import (
     ConversationPreviewSerializer,
     SendMessageSerializer,
+    ToggleAgentSerializer,
     WhatsAppMessageSerializer,
 )
 from .utils import get_lead_by_phone, normalize_phone_for_meta, send_whatsapp_message
@@ -35,35 +36,20 @@ def _no_cache(response):
 
 def _extract_message_body(msg: dict) -> str:
     msg_type = msg.get("type", "text")
-
     if msg_type == "text":
         return msg.get("text", {}).get("body", "")
-
     if msg_type == "button":
         return msg.get("button", {}).get("text", "")
-
     if msg_type == "interactive":
         interactive = msg.get("interactive", {})
-        interactive_type = interactive.get("type")
-
-        if interactive_type == "button_reply":
+        itype = interactive.get("type")
+        if itype == "button_reply":
             return interactive.get("button_reply", {}).get("title", "")
-
-        if interactive_type == "list_reply":
+        if itype == "list_reply":
             return interactive.get("list_reply", {}).get("title", "")
-
-    if msg_type == "image":
-        return "[Image]"
-    if msg_type == "audio":
-        return "[Audio]"
-    if msg_type == "video":
-        return "[Video]"
-    if msg_type == "document":
-        return "[Document]"
-    if msg_type == "sticker":
-        return "[Sticker]"
-
-    return f"[{msg_type}]"
+    media_types = {"image": "[Image]", "audio": "[Audio]", "video": "[Video]",
+                   "document": "[Document]", "sticker": "[Sticker]"}
+    return media_types.get(msg_type, f"[{msg_type}]")
 
 
 def _process_incoming_message(msg: dict):
@@ -72,15 +58,15 @@ def _process_incoming_message(msg: dict):
     text_body = _extract_message_body(msg)
 
     if not wa_id or not wa_phone:
-        logger.warning("⚠️ Message ignoré — wa_id ou wa_phone manquant")
+        logger.warning("Message ignore - wa_id ou wa_phone manquant")
         return
 
     if WhatsAppMessage.objects.filter(wa_id=wa_id).exists():
-        logger.info("⏭️ Message %s déjà reçu, ignoré", wa_id)
+        logger.info("Message %s deja recu, ignore", wa_id)
         return
 
     lead = get_lead_by_phone(wa_phone)
-    logger.info("👤 Lead : %s", f"{lead.first_name} {lead.last_name}" if lead else "inconnu")
+    logger.info("Lead : %s", f"{lead.first_name} {lead.last_name}" if lead else "inconnu")
 
     WhatsAppMessage.objects.create(
         wa_id=wa_id,
@@ -91,43 +77,46 @@ def _process_incoming_message(msg: dict):
         is_read=False,
         delivery_status="delivered",
     )
-    logger.info("✅ Message sauvegardé — phone=%s body=%s", wa_phone, text_body)
 
+    # Confirmation RDV automatique
     if lead and text_body and ("oui" in text_body.lower() or "confirme" in text_body.lower()):
         try:
             status_confirme = LeadStatus.objects.get(code=RDV_CONFIRME)
             lead.status = status_confirme
             lead.save(update_fields=["status"])
-            logger.info("🎯 Lead %s %s confirmé via WhatsApp", lead.first_name, lead.last_name)
+            logger.info("Lead %s %s confirme via WhatsApp", lead.first_name, lead.last_name)
         except LeadStatus.DoesNotExist:
-            logger.error("❌ LeadStatus RDV_CONFIRME introuvable")
+            logger.error("LeadStatus RDV_CONFIRME introuvable")
+
+    _trigger_agent(text_body=text_body, sender_phone=wa_phone, lead=lead)
+
+
+def _trigger_agent(text_body: str, sender_phone: str, lead):
+    try:
+        from .agent.handler import trigger_agent_response
+        trigger_agent_response(incoming_body=text_body, sender_phone=sender_phone, lead=lead)
+    except Exception as exc:
+        logger.exception("Erreur agent IA (non bloquante) : %s", exc)
 
 
 def _process_status_update(st: dict):
     wa_id = st.get("id")
     status_value = st.get("status")
-
     if not wa_id or not status_value:
-        logger.warning("⚠️ Status ignoré — id ou status manquant")
         return
-
     try:
         msg = WhatsAppMessage.objects.get(wa_id=wa_id)
     except WhatsAppMessage.DoesNotExist:
-        logger.warning("⚠️ Aucun message local trouvé pour wa_id=%s", wa_id)
         return
-
-    allowed_statuses = {"sent", "delivered", "read", "failed"}
-    if status_value not in allowed_statuses:
-        logger.info("ℹ️ Status non géré: %s pour %s", status_value, wa_id)
+    if status_value not in {"sent", "delivered", "read", "failed"}:
         return
-
     msg.delivery_status = status_value
     if status_value == "read":
         msg.is_read = True
     msg.save(update_fields=["delivery_status", "is_read"])
-    logger.info("✅ Status mis à jour — wa_id=%s status=%s", wa_id, status_value)
 
+
+# ─── Webhook ──────────────────────────────────────────────────────────────────
 
 @never_cache
 @api_view(["GET", "POST"])
@@ -138,44 +127,26 @@ def whatsapp_webhook(request):
         mode = request.query_params.get("hub.mode")
         token = request.query_params.get("hub.verify_token")
         challenge = request.query_params.get("hub.challenge")
-
-        logger.info("🔔 Webhook GET reçu — mode=%s token=%s challenge=%s", mode, token, challenge)
-
         if mode == "subscribe" and token == verify_token:
-            logger.info("✅ Webhook WhatsApp validé par Meta")
             return _no_cache(HttpResponse(challenge, status=200))
-
-        logger.warning("❌ Échec validation Webhook — token reçu: %s", token)
         return _no_cache(HttpResponse("Forbidden", status=403))
-
-    logger.info("📨 Webhook POST reçu de Meta")
-    logger.info("📦 Payload brut : %s", json.dumps(request.data, ensure_ascii=False, indent=2))
 
     data = request.data
     try:
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
-                messages = value.get("messages", [])
-                statuses = value.get("statuses", [])
-
-                if not messages and not statuses:
-                    logger.info("ℹ️ Pas de messages ni de statuts dans ce payload")
-
-                for msg in messages:
-                    logger.info("💬 Message reçu : %s", json.dumps(msg, ensure_ascii=False))
+                for msg in value.get("messages", []):
                     _process_incoming_message(msg)
-
-                for st in statuses:
-                    logger.info("📬 Status reçu : %s", json.dumps(st, ensure_ascii=False))
+                for st in value.get("statuses", []):
                     _process_status_update(st)
-
         return _no_cache(HttpResponse("EVENT_RECEIVED", status=200))
-
     except Exception as exc:
-        logger.exception("❌ Erreur Webhook WhatsApp : %s", exc)
+        logger.exception("Erreur Webhook WhatsApp : %s", exc)
         return _no_cache(HttpResponse("EVENT_RECEIVED", status=200))
 
+
+# ─── Conversations & Messages ─────────────────────────────────────────────────
 
 @never_cache
 @api_view(["GET"])
@@ -187,6 +158,7 @@ def conversation_list(request):
         .annotate(last_msg_time=Max("whatsapp_messages__timestamp"))
         .order_by("-last_msg_time")
         .prefetch_related("whatsapp_messages")
+        .select_related("whatsapp_settings")
         .distinct()
     )
     known = ConversationPreviewSerializer(leads, many=True).data
@@ -211,6 +183,7 @@ def conversation_list(request):
         unread = WhatsAppMessage.objects.filter(
             lead__isnull=True, sender_phone=phone, is_outbound=False, is_read=False
         ).count()
+        agent_on = WhatsAppConversationSettings.is_agent_enabled(phone=phone)
 
         unknown.append({
             "id": None,
@@ -221,13 +194,12 @@ def conversation_list(request):
             "last_message": WhatsAppMessageSerializer(last_msg).data if last_msg else None,
             "unread_count": unread,
             "is_unknown": True,
+            "agent_enabled": agent_on,
         })
 
     def get_ts(conv):
         lm = conv.get("last_message")
-        if lm and lm.get("timestamp"):
-            return lm["timestamp"]
-        return ""
+        return lm["timestamp"] if lm and lm.get("timestamp") else ""
 
     all_conversations = sorted(list(known) + unknown, key=get_ts, reverse=True)
     return _no_cache(Response(all_conversations))
@@ -238,21 +210,18 @@ def conversation_list(request):
 @permission_classes([AllowAny])
 def message_list(request, lead_id: int):
     messages = WhatsAppMessage.objects.filter(lead_id=lead_id).order_by("timestamp")
-    serializer = WhatsAppMessageSerializer(messages, many=True)
-    return _no_cache(Response(serializer.data))
+    return _no_cache(Response(WhatsAppMessageSerializer(messages, many=True).data))
 
 
 @never_cache
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def message_list_unknown(request, phone: str):
-    messages = WhatsAppMessage.objects.filter(
-        lead__isnull=True,
-        sender_phone=phone,
-    ).order_by("timestamp")
-    serializer = WhatsAppMessageSerializer(messages, many=True)
-    return _no_cache(Response(serializer.data))
+    messages = WhatsAppMessage.objects.filter(lead__isnull=True, sender_phone=phone).order_by("timestamp")
+    return _no_cache(Response(WhatsAppMessageSerializer(messages, many=True).data))
 
+
+# ─── Envoi & Lecture ──────────────────────────────────────────────────────────
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -280,23 +249,14 @@ def send_message(request):
     try:
         meta_response = send_whatsapp_message(to_phone, body)
     except Exception as exc:
-        logger.exception("❌ Échec envoi WhatsApp : %s", exc)
-        return Response(
-            {"detail": "Échec d'envoi via Meta.", "error": str(exc)},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
+        logger.exception("Echec envoi WhatsApp : %s", exc)
+        return Response({"detail": "Echec envoi via Meta.", "error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
     wa_id = meta_response.get("messages", [{}])[0].get("id", f"out_{to_phone}_{body[:8]}")
     message = WhatsAppMessage.objects.create(
-        wa_id=wa_id,
-        lead=lead,
-        sender_phone=to_phone,
-        body=body,
-        is_outbound=True,
-        is_read=True,
-        delivery_status="sent",
+        wa_id=wa_id, lead=lead, sender_phone=to_phone,
+        body=body, is_outbound=True, is_read=True, delivery_status="sent",
     )
-
     return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
 
@@ -304,9 +264,7 @@ def send_message(request):
 @permission_classes([AllowAny])
 def mark_as_read(request, lead_id: int):
     updated = WhatsAppMessage.objects.filter(
-        lead_id=lead_id,
-        is_outbound=False,
-        is_read=False,
+        lead_id=lead_id, is_outbound=False, is_read=False
     ).update(is_read=True)
     return Response({"marked_read": updated})
 
@@ -315,9 +273,57 @@ def mark_as_read(request, lead_id: int):
 @permission_classes([AllowAny])
 def mark_as_read_unknown(request, phone: str):
     updated = WhatsAppMessage.objects.filter(
-        lead__isnull=True,
-        sender_phone=phone,
-        is_outbound=False,
-        is_read=False,
+        lead__isnull=True, sender_phone=phone, is_outbound=False, is_read=False
     ).update(is_read=True)
     return Response({"marked_read": updated})
+
+
+# ─── Toggle Agent par conversation ────────────────────────────────────────────
+
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+def agent_settings_lead(request, lead_id: int):
+    """
+    GET  /whatsapp/conversations/<lead_id>/agent/  → état agent
+    POST /whatsapp/conversations/<lead_id>/agent/  → { "agent_enabled": bool }
+    """
+    try:
+        lead = Lead.objects.get(id=lead_id)
+    except Lead.DoesNotExist:
+        return Response({"detail": "Lead introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    conv_settings = WhatsAppConversationSettings.get_for_lead(lead)
+
+    if request.method == "GET":
+        return Response({"agent_enabled": conv_settings.agent_enabled})
+
+    serializer = ToggleAgentSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    conv_settings.agent_enabled = serializer.validated_data["agent_enabled"]
+    conv_settings.save(update_fields=["agent_enabled", "updated_at"])
+    logger.info("Agent %s pour lead #%d", "actif" if conv_settings.agent_enabled else "pause", lead_id)
+    return Response({"agent_enabled": conv_settings.agent_enabled})
+
+
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+def agent_settings_unknown(request, phone: str):
+    """
+    GET  /whatsapp/conversations/unknown/<phone>/agent/
+    POST /whatsapp/conversations/unknown/<phone>/agent/  → { "agent_enabled": bool }
+    """
+    conv_settings = WhatsAppConversationSettings.get_for_phone(phone)
+
+    if request.method == "GET":
+        return Response({"agent_enabled": conv_settings.agent_enabled})
+
+    serializer = ToggleAgentSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    conv_settings.agent_enabled = serializer.validated_data["agent_enabled"]
+    conv_settings.save(update_fields=["agent_enabled", "updated_at"])
+    logger.info("Agent %s pour phone=%s", "actif" if conv_settings.agent_enabled else "pause", phone)
+    return Response({"agent_enabled": conv_settings.agent_enabled})

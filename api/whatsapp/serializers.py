@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import WhatsAppMessage
+from .models import WhatsAppMessage, WhatsAppConversationSettings
 from api.leads.models import Lead
 
 
@@ -19,14 +19,33 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "wa_id", "timestamp", "sender_phone", "delivery_status"]
 
 
+class AgentSettingsSerializer(serializers.ModelSerializer):
+    """Sérialise l'état agent_enabled d'une conversation."""
+
+    class Meta:
+        model = WhatsAppConversationSettings
+        fields = ["agent_enabled", "updated_at"]
+        read_only_fields = ["updated_at"]
+
+
 class ConversationPreviewSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
     is_unknown = serializers.SerializerMethodField()
+    agent_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = Lead
-        fields = ["id", "first_name", "last_name", "phone", "last_message", "unread_count", "is_unknown"]
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "phone",
+            "last_message",
+            "unread_count",
+            "is_unknown",
+            "agent_enabled",
+        ]
 
     def get_last_message(self, obj):
         msg = obj.whatsapp_messages.order_by("-timestamp").first()
@@ -38,6 +57,12 @@ class ConversationPreviewSerializer(serializers.ModelSerializer):
     def get_is_unknown(self, obj):
         return False
 
+    def get_agent_enabled(self, obj):
+        try:
+            return obj.whatsapp_settings.agent_enabled
+        except WhatsAppConversationSettings.DoesNotExist:
+            return True  # Actif par défaut
+
 
 class UnknownConversationSerializer(serializers.Serializer):
     id = serializers.IntegerField(allow_null=True, required=False)
@@ -48,6 +73,7 @@ class UnknownConversationSerializer(serializers.Serializer):
     last_message = WhatsAppMessageSerializer(allow_null=True)
     unread_count = serializers.IntegerField()
     is_unknown = serializers.BooleanField()
+    agent_enabled = serializers.BooleanField()
 
 
 class SendMessageSerializer(serializers.Serializer):
@@ -59,3 +85,8 @@ class SendMessageSerializer(serializers.Serializer):
         if not attrs.get("lead_id") and not attrs.get("phone"):
             raise serializers.ValidationError("lead_id ou phone est requis.")
         return attrs
+
+
+class ToggleAgentSerializer(serializers.Serializer):
+    """Payload pour activer/désactiver l'agent sur une conversation."""
+    agent_enabled = serializers.BooleanField()
