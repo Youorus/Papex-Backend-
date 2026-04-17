@@ -1,7 +1,3 @@
-"""
-Moteur conversationnel — Agent Kemora (Papiers Express).
-"""
-
 import json
 import logging
 from typing import Optional, Tuple
@@ -14,7 +10,7 @@ from .prompt import (
     LEAD_DATA_MARKER,
     LEAD_DATA_END,
 )
-from ..models import WhatsAppMessage, WhatsAppConversationSettings
+from ..models import WhatsAppMessage
 
 logger = logging.getLogger(__name__)
 
@@ -29,37 +25,43 @@ def _get_gemini_client():
     global _gemini_client
     if _gemini_client is None:
         from google import genai
+
         api_key = getattr(settings, "GEMINI_API_KEY", None)
         if not api_key:
             raise ValueError("GEMINI_API_KEY manquante dans les settings Django")
+
         _gemini_client = genai.Client(api_key=api_key)
         logger.info("Client Gemini initialisé (singleton)")
     return _gemini_client
 
 
 def _get_model_name() -> str:
-    return (
-        GEMINI_MODEL_OVERRIDE
-        or getattr(settings, "GEMINI_MODEL", "gemini-2.5-pro")
-    )
+    return GEMINI_MODEL_OVERRIDE or getattr(settings, "GEMINI_MODEL", "gemini-2.5-pro")
 
 
 def _format_history(messages) -> str:
     lines = []
     total_chars = 0
+
     for msg in messages:
         role = "Kemora" if msg.is_outbound else "Client"
         body = msg.body or ""
+
         if LEAD_DATA_MARKER in body:
             body = body[:body.index(LEAD_DATA_MARKER)].strip()
-        if len(body) > 500:
-            body = body[:500] + "…"
+
+        if len(body) > 400:
+            body = body[:400] + "…"
+
         line = f"{role}: {body}"
         total_chars += len(line)
+
         if total_chars > MAX_HISTORY_CHARS:
-            lines.append("[historique tronqué]")
+            lines.insert(0, "[historique tronqué — conversation longue]")
             break
+
         lines.append(line)
+
     return "\n".join(lines)
 
 
@@ -69,49 +71,40 @@ def _build_prompt(
     lead_first_name: Optional[str] = None,
     first_contact: bool = True,
 ) -> str:
-    """
-    Construit le prompt avec contexte clair sur l'état de la conversation.
-    Le paramètre first_contact est crucial pour éviter les re-présentations.
-    """
     context_parts = []
 
-    # Contexte CRM
     if lead_first_name:
         context_parts.append(f"[CRM: client connu, prénom = {lead_first_name}]")
     else:
         context_parts.append("[CRM: client inconnu, non enregistré]")
 
-    # Contexte conversation — LE POINT CLÉ
     if first_contact:
         context_parts.append(
-            "[ÉTAT CONVERSATION: PREMIER CONTACT — c'est le tout premier message de cette personne. "
-            "Tu dois te présenter brièvement : 'Bonjour, je suis Kemora du cabinet Papiers Express...' "
-            "puis demander comment tu peux aider.]"
+            "[ÉTAT: PREMIER CONTACT — présente-toi brièvement en tant que Kemora "
+            "du cabinet Papiers Express, puis demande comment aider.]"
         )
     else:
         context_parts.append(
-            "[ÉTAT CONVERSATION: CONVERSATION EN COURS — tu t'es déjà présenté. "
-            "NE PAS dire 'Bonjour', NE PAS te représenter. "
-            "Continue la conversation naturellement comme si tu parlais déjà avec cette personne.]"
+            "[ÉTAT: CONVERSATION EN COURS — tu t'es déjà présenté. "
+            "NE PAS dire Bonjour. NE PAS te représenter. "
+            "Réponds directement et naturellement à la suite de la conversation.]"
         )
 
-    # Historique
     if history_text:
-        context_parts.append(f"=== Historique de la conversation ===\n{history_text}")
+        context_parts.append(f"=== Historique ===\n{history_text}")
     else:
         context_parts.append("[Pas d'historique]")
 
-    # Message entrant
     context_parts.append(f"=== Nouveau message du client ===\n{incoming_message}")
-    context_parts.append("=== Réponse de Kemora (continue naturellement) ===")
+    context_parts.append("=== Réponse de Kemora ===")
 
-    context = "\n\n".join(context_parts)
-    return f"{SYSTEM_PROMPT_CACHED}\n\n---\n\n{context}"
+    return f"{SYSTEM_PROMPT_CACHED}\n\n---\n\n" + "\n\n".join(context_parts)
 
 
 def _extract_lead_data(text: str) -> Optional[dict]:
     if LEAD_DATA_MARKER not in text:
         return None
+
     try:
         start = text.index(LEAD_DATA_MARKER) + len(LEAD_DATA_MARKER)
         end = text.index(LEAD_DATA_END, start)
@@ -124,6 +117,7 @@ def _extract_lead_data(text: str) -> Optional[dict]:
 def _strip_lead_marker(text: str) -> str:
     if LEAD_DATA_MARKER not in text:
         return text
+
     try:
         start = text.index(LEAD_DATA_MARKER)
         end = text.index(LEAD_DATA_END, start) + len(LEAD_DATA_END)
@@ -132,66 +126,68 @@ def _strip_lead_marker(text: str) -> str:
         return text
 
 
-def _create_lead_from_data(data: dict, sender_phone: str) -> Optional[object]:
+def _dispatch_lead_creation(data: dict, sender_phone: str) -> None:
+    first_name = (data.get("first_name") or "").strip()
+    last_name = (data.get("last_name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    email = (data.get("email") or "").strip() or None
+    service_summary = (data.get("service_summary") or "").strip() or None
+    appointment_date = (data.get("appointment_date") or "").strip()
+    statut_dossier_id = data.get("statut_dossier_id")
+
+    if not first_name or not last_name or not appointment_date:
+        logger.info(
+            "Lead incomplet — création non déclenchée "
+            "(first_name=%s last_name=%s appointment_date=%s)",
+            bool(first_name),
+            bool(last_name),
+            bool(appointment_date),
+        )
+        return
+
     try:
-        from api.leads.models import Lead
-        from api.lead_status.models import LeadStatus
-        from api.leads.constants import RDV_PLANIFIE
-        from api.clients.models import Client
+        from django_q.tasks import async_task
 
-        first_name = (data.get("first_name") or "").strip().capitalize()
-        last_name = (data.get("last_name") or "").strip().capitalize()
-
-        if not first_name or not last_name:
-            logger.warning("Données lead incomplètes — création ignorée")
-            return None
-
-        phone = (data.get("phone") or "").strip() or sender_phone
-        email = (data.get("email") or "").strip() or None
-
-        existing = Lead.objects.filter(phone=phone).first()
-        if existing:
-            logger.info("Lead déjà existant pour phone=%s", phone)
-            return existing
-
-        try:
-            default_status = LeadStatus.objects.get(code=RDV_PLANIFIE)
-        except LeadStatus.DoesNotExist:
-            default_status = LeadStatus.objects.first()
-
-        lead = Lead.objects.create(
+        async_task(
+            "api.whatsapp.agent.lead_service.create_lead_async",
             first_name=first_name,
             last_name=last_name,
             phone=phone,
             email=email,
-            status=default_status,
+            service_summary=service_summary,
+            sender_phone=sender_phone,
+            appointment_date=appointment_date,
+            statut_dossier_id=statut_dossier_id,
+            q_options={
+                "task_name": f"create_lead_{sender_phone}",
+                "timeout": 60,
+                "max_attempts": 2,
+            },
         )
 
-        Client.objects.get_or_create(lead=lead)
+        logger.info(
+            "Tâche création lead dispatchée via Django-Q2 — %s %s",
+            first_name,
+            last_name,
+        )
 
-        WhatsAppMessage.objects.filter(
-            lead__isnull=True,
+    except ImportError:
+        logger.warning("Django-Q2 non disponible — fallback synchrone")
+        from .lead_service import create_lead_from_kemora
+
+        create_lead_from_kemora(
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            email=email,
+            service_summary=service_summary,
             sender_phone=sender_phone,
-        ).update(lead=lead)
-
-        try:
-            old = WhatsAppConversationSettings.objects.get(
-                lead__isnull=True, sender_phone=sender_phone
-            )
-            enabled = old.agent_enabled
-            old.delete()
-            WhatsAppConversationSettings.objects.get_or_create(
-                lead=lead, defaults={"agent_enabled": enabled}
-            )
-        except WhatsAppConversationSettings.DoesNotExist:
-            pass
-
-        logger.info("Lead créé : %s %s (phone=%s)", first_name, last_name, phone)
-        return lead
+            appointment_date=appointment_date,
+            statut_dossier_id=statut_dossier_id,
+        )
 
     except Exception as exc:
-        logger.exception("Erreur création lead : %s", exc)
-        return None
+        logger.exception("Erreur dispatch création lead : %s", exc)
 
 
 def generate_agent_reply(
@@ -199,14 +195,7 @@ def generate_agent_reply(
     lead=None,
     sender_phone: Optional[str] = None,
     first_contact: bool = True,
-) -> Optional[Tuple[str, Optional[object]]]:
-    """
-    Génère la réponse de Kemora.
-
-    Args:
-        first_contact: True = premier message → Kemora se présente.
-                       False = conversation en cours → pas de re-présentation.
-    """
+) -> Optional[Tuple[str, None]]:
     history_text = ""
     lead_first_name = None
 
@@ -253,20 +242,25 @@ def generate_agent_reply(
 
         full_reply = (response.text or "").strip()
         if not full_reply:
-            logger.warning("Gemini a retourné une réponse vide")
+            logger.warning("Gemini — réponse vide")
             return None
 
         lead_data = _extract_lead_data(full_reply)
-        new_lead = None
+
         if lead_data and not lead:
-            new_lead = _create_lead_from_data(lead_data, sender_phone or "")
+            _dispatch_lead_creation(lead_data, sender_phone or "")
 
         clean_reply = _strip_lead_marker(full_reply)
+
         logger.info(
-            "Kemora a répondu — modèle=%s first_contact=%s chars=%d",
-            model_name, first_contact, len(clean_reply)
+            "Kemora — réponse générée | modèle=%s first=%s chars=%d lead_data=%s",
+            model_name,
+            first_contact,
+            len(clean_reply),
+            bool(lead_data),
         )
-        return clean_reply, new_lead
+
+        return clean_reply, None
 
     except Exception as exc:
         logger.exception("Erreur appel Gemini : %s", exc)

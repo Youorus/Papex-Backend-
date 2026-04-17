@@ -30,11 +30,6 @@ def handle_lead_created(event):
     else:
         logger.warning("[handle_lead_created] Lead #%s n'a pas d'email, envoi annulé.", lead.id)
 
-    # 4. PLANIFICATION : SMS Confirmation Présence (2h après)
-    # countdown=7200 secondes (2h)
-    send_confirm_presence_sms_task.apply_async(
-        args=[lead.id],
-        countdown=60 * 120
-    )
+
 
     logger.info("[handle_lead_created] Automation complète (SMS + Email) pour lead #%s", lead.id)
