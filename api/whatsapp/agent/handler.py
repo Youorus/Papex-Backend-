@@ -89,6 +89,8 @@ def trigger_agent_response(
         return _send_and_save(reply, sender_phone, lead)
 
     # Texte → Gemini
+    # sender_phone est passé à l'engine pour être injecté dans le prompt
+    # afin que Kemora puisse le mentionner lors de la confirmation du numéro
     from .engine import generate_agent_reply
     result = generate_agent_reply(
         incoming_message=incoming_body,
@@ -106,9 +108,9 @@ def trigger_agent_response(
 
 def _send_and_save(reply_text: str, sender_phone: str, lead=None) -> Optional[str]:
     try:
-        to_phone     = normalize_phone_for_meta(sender_phone)
-        meta_resp    = send_whatsapp_message(to_phone, reply_text)
-        wa_id        = (
+        to_phone  = normalize_phone_for_meta(sender_phone)
+        meta_resp = send_whatsapp_message(to_phone, reply_text)
+        wa_id     = (
             meta_resp.get("messages", [{}])[0].get("id")
             or f"kemora_{to_phone}_{reply_text[:6]}"
         )

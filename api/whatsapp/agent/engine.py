@@ -53,6 +53,7 @@ def _format_history(messages) -> str:
     for msg in messages:
         role = "Kemora" if msg.is_outbound else "Client"
         body = msg.body or ""
+        # Retirer les blocs LEAD_DATA de l'historique (jamais visibles dans le contexte)
         if LEAD_DATA_MARKER in body:
             body = body[:body.index(LEAD_DATA_MARKER)].strip()
         if len(body) > 400:
@@ -72,6 +73,7 @@ def _build_prompt(
     incoming_message: str,
     history_text: str,
     lead_first_name: Optional[str] = None,
+    sender_phone: Optional[str] = None,
     first_contact: bool = True,
 ) -> str:
     parts = []
@@ -80,6 +82,11 @@ def _build_prompt(
         parts.append(f"[CRM: client connu, prénom = {lead_first_name}]")
     else:
         parts.append("[CRM: client inconnu, non enregistré]")
+
+    # Injecter sender_phone pour que Kemora puisse le mentionner lors de la confirmation
+    if sender_phone:
+        parts.append(f"[SENDER_PHONE: {sender_phone} — c'est le numéro WhatsApp de la personne. "
+                     f"Quand tu demandes la confirmation du téléphone, mentionne ce numéro explicitement.]")
 
     if first_contact:
         parts.append(
@@ -125,29 +132,73 @@ def _strip_lead_marker(text: str) -> str:
         return text
 
 
+# ─── Validation lead data ─────────────────────────────────────────────────────
+
+def _validate_lead_data(data: dict, sender_phone: str) -> Optional[str]:
+    """
+    Valide les champs du bloc LEAD_DATA.
+    Retourne un message d'erreur si invalide, None si tout est OK.
+    """
+    first_name = (data.get("first_name") or "").strip()
+    last_name  = (data.get("last_name") or "").strip()
+    phone      = (data.get("phone") or "").strip()
+    appointment_date = (data.get("appointment_date") or "").strip()
+
+    if not first_name:
+        return "first_name manquant"
+    if not last_name:
+        return "last_name manquant"
+    if not appointment_date:
+        return "appointment_date manquante"
+
+    # Le phone peut être vide si Kemora n'a pas encore la confirmation
+    # On fait confiance à sender_phone comme fallback ultime dans lead_service
+    # mais on log un avertissement
+    if not phone:
+        logger.warning(
+            "LEAD_DATA sans phone explicite — sender_phone=%s sera utilisé comme fallback",
+            sender_phone,
+        )
+
+    return None
+
+
 # ─── Dispatch création lead (async Django-Q2) ─────────────────────────────────
 
 def _dispatch_lead_creation(data: dict, sender_phone: str) -> None:
     """
     Extrait et valide les champs, puis délègue à Django-Q2.
-    Seuls les champs obligatoires bloquants sont vérifiés ici :
-    first_name, last_name, appointment_date (phone = sender_phone si absent).
+
+    Champs obligatoires bloquants : first_name, last_name, appointment_date.
+    Le phone utilise sender_phone comme fallback si absent du bloc LEAD_DATA
+    (cas où Kemora a utilisé le numéro WhatsApp sans le réécrire explicitement).
     """
-    first_name       = (data.get("first_name") or "").strip()
-    last_name        = (data.get("last_name") or "").strip()
-    phone            = (data.get("phone") or "").strip()
-    email            = (data.get("email") or "").strip() or None
-    service_summary  = (data.get("service_summary") or "").strip() or None
-    appointment_date = (data.get("appointment_date") or "").strip()
+    first_name        = (data.get("first_name") or "").strip()
+    last_name         = (data.get("last_name") or "").strip()
+    # Fallback sur sender_phone si phone non fourni ou vide dans le bloc
+    phone             = (data.get("phone") or "").strip() or sender_phone
+    email             = (data.get("email") or "").strip() or None
+    service_summary   = (data.get("service_summary") or "").strip() or None
+    appointment_date  = (data.get("appointment_date") or "").strip()
     statut_dossier_id = data.get("statut_dossier_id")
 
-    if not first_name or not last_name:
-        logger.info("Dispatch lead ignoré — prénom ou nom manquant")
+    # ── Validations bloquantes ────────────────────────────────────────────────
+    validation_error = _validate_lead_data(data, sender_phone)
+    if validation_error:
+        logger.warning("Dispatch lead ignoré — %s | data=%s", validation_error, data)
         return
 
-    if not appointment_date:
-        logger.info("Dispatch lead ignoré — appointment_date manquante")
+    if not phone:
+        logger.warning(
+            "Dispatch lead ignoré — phone manquant (ni dans LEAD_DATA ni sender_phone) | data=%s",
+            data,
+        )
         return
+
+    logger.info(
+        "Dispatch lead — %s %s | phone=%s | rdv=%s | email=%s",
+        first_name, last_name, phone, appointment_date, email or "—",
+    )
 
     try:
         from django_q.tasks import async_task
@@ -167,15 +218,22 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> None:
                 "max_attempts": 2,
             },
         )
-        logger.info("Lead dispatché via Django-Q2 — %s %s rdv=%s", first_name, last_name, appointment_date)
+        logger.info(
+            "Lead dispatché via Django-Q2 — %s %s rdv=%s",
+            first_name, last_name, appointment_date,
+        )
 
     except ImportError:
         logger.warning("Django-Q2 indisponible — fallback synchrone")
         from .lead_service import create_lead_from_kemora
         create_lead_from_kemora(
-            first_name=first_name, last_name=last_name, phone=phone,
-            email=email, service_summary=service_summary,
-            sender_phone=sender_phone, appointment_date=appointment_date,
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            email=email,
+            service_summary=service_summary,
+            sender_phone=sender_phone,
+            appointment_date=appointment_date,
             statut_dossier_id=statut_dossier_id,
         )
 
@@ -227,7 +285,13 @@ def generate_agent_reply(
 
     # ── Appel Gemini ──────────────────────────────────────────────────────────
     try:
-        prompt = _build_prompt(incoming_message, history_text, lead_first_name, first_contact)
+        prompt = _build_prompt(
+            incoming_message=incoming_message,
+            history_text=history_text,
+            lead_first_name=lead_first_name,
+            sender_phone=sender_phone,
+            first_contact=first_contact,
+        )
         client = _get_gemini_client()
 
         response = client.models.generate_content(
@@ -242,8 +306,19 @@ def generate_agent_reply(
 
         # ── Extraction + dispatch lead ────────────────────────────────────────
         lead_data = _extract_lead_data(full_reply)
-        if lead_data and not lead:
-            _dispatch_lead_creation(lead_data, sender_phone or "")
+        if lead_data:
+            if not lead:
+                # Nouveau client → création complète
+                _dispatch_lead_creation(lead_data, sender_phone or "")
+            else:
+                # Client connu → mise à jour du RDV si appointment_date présente
+                appointment_date = (lead_data.get("appointment_date") or "").strip()
+                if appointment_date:
+                    _dispatch_lead_creation(lead_data, sender_phone or "")
+                    logger.info(
+                        "Lead connu #%d — mise à jour RDV dispatché : %s",
+                        lead.pk, appointment_date,
+                    )
 
         clean_reply = _strip_lead_marker(full_reply)
 
