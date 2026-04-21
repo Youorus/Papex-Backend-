@@ -3,7 +3,17 @@ Moteur conversationnel — Agent Kemora (Papiers Express).
 
 Multi-conversations : chaque appel est stateless.
 Singleton Gemini client pour réutiliser la connexion HTTP.
-Création lead déléguée à Django-Q2 (non-bloquant).
+
+Stratégie de création de lead :
+  1. L'engine appelle create_lead_from_kemora() de façon SYNCHRONE par défaut.
+     → On obtient immédiatement le résultat (created / updated / error).
+     → Si Django-Q2 est disponible ET configuré, on délègue en async.
+  2. Si la création réussit, on injecte un contexte [[LEAD_RESULT:...]] dans
+     la réponse nettoyée pour que l'engine puisse confirmer à Kemora
+     côté message visible (ou pour debug/logging).
+
+Note : La confirmation visible au client est déjà écrite par Kemora
+dans son message (section 8 du prompt). On ne la regénère pas.
 """
 
 import json
@@ -28,6 +38,8 @@ SYSTEM_PROMPT_CACHED = SYSTEM_PROMPT
 
 _gemini_client = None
 
+
+# ─── Client Gemini (singleton) ────────────────────────────────────────────────
 
 def _get_gemini_client():
     global _gemini_client
@@ -83,10 +95,11 @@ def _build_prompt(
     else:
         parts.append("[CRM: client inconnu, non enregistré]")
 
-    # Injecter sender_phone pour que Kemora puisse le mentionner lors de la confirmation
     if sender_phone:
-        parts.append(f"[SENDER_PHONE: {sender_phone} — c'est le numéro WhatsApp de la personne. "
-                     f"Quand tu demandes la confirmation du téléphone, mentionne ce numéro explicitement.]")
+        parts.append(
+            f"[SENDER_PHONE: {sender_phone} — c'est le numéro WhatsApp de la personne. "
+            f"Quand tu demandes la confirmation du téléphone, mentionne ce numéro explicitement.]"
+        )
 
     if first_contact:
         parts.append(
@@ -107,7 +120,7 @@ def _build_prompt(
     return f"{SYSTEM_PROMPT_CACHED}\n\n---\n\n" + "\n\n".join(parts)
 
 
-# ─── Extraction lead data ─────────────────────────────────────────────────────
+# ─── Extraction / nettoyage LEAD_DATA ─────────────────────────────────────────
 
 def _extract_lead_data(text: str) -> Optional[dict]:
     if LEAD_DATA_MARKER not in text:
@@ -139,10 +152,10 @@ def _validate_lead_data(data: dict, sender_phone: str) -> Optional[str]:
     Valide les champs du bloc LEAD_DATA.
     Retourne un message d'erreur si invalide, None si tout est OK.
     """
-    first_name = (data.get("first_name") or "").strip()
-    last_name  = (data.get("last_name") or "").strip()
-    phone      = (data.get("phone") or "").strip()
+    first_name       = (data.get("first_name") or "").strip()
+    last_name        = (data.get("last_name") or "").strip()
     appointment_date = (data.get("appointment_date") or "").strip()
+    phone            = (data.get("phone") or "").strip()
 
     if not first_name:
         return "first_name manquant"
@@ -150,95 +163,102 @@ def _validate_lead_data(data: dict, sender_phone: str) -> Optional[str]:
         return "last_name manquant"
     if not appointment_date:
         return "appointment_date manquante"
-
-    # Le phone peut être vide si Kemora n'a pas encore la confirmation
-    # On fait confiance à sender_phone comme fallback ultime dans lead_service
-    # mais on log un avertissement
     if not phone:
         logger.warning(
             "LEAD_DATA sans phone explicite — sender_phone=%s sera utilisé comme fallback",
             sender_phone,
         )
-
     return None
 
 
-# ─── Dispatch création lead (async Django-Q2) ─────────────────────────────────
+# ─── Dispatch création lead ───────────────────────────────────────────────────
 
-def _dispatch_lead_creation(data: dict, sender_phone: str) -> None:
+def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
     """
-    Extrait et valide les champs, puis délègue à Django-Q2.
+    Crée ou met à jour le lead.
 
-    Champs obligatoires bloquants : first_name, last_name, appointment_date.
-    Le phone utilise sender_phone comme fallback si absent du bloc LEAD_DATA
-    (cas où Kemora a utilisé le numéro WhatsApp sans le réécrire explicitement).
+    Stratégie :
+    - Tente d'abord Django-Q2 (async) si disponible.
+    - Si Django-Q2 indisponible → fallback synchrone immédiat.
+    - Retourne le résultat de la création (dict avec status/lead_id/etc.)
+      en mode synchrone, ou {"status": "queued"} en mode async.
+
+    Important : en mode async, la confirmation visible au client
+    est déjà incluse dans le message Kemora (généré par le LLM).
+    En mode sync, on peut vérifier le résultat mais la réponse est
+    déjà construite — on log seulement.
     """
-    first_name        = (data.get("first_name") or "").strip()
-    last_name         = (data.get("last_name") or "").strip()
-    # Fallback sur sender_phone si phone non fourni ou vide dans le bloc
-    phone             = (data.get("phone") or "").strip() or sender_phone
-    email             = (data.get("email") or "").strip() or None
-    service_summary   = (data.get("service_summary") or "").strip() or None
-    appointment_date  = (data.get("appointment_date") or "").strip()
-    statut_dossier_id = data.get("statut_dossier_id")
+    # Validation préalable
+    error = _validate_lead_data(data, sender_phone)
+    if error:
+        logger.warning("Dispatch lead ignoré — %s | data=%s", error, data)
+        return {"status": "error", "error": error}
 
-    # ── Validations bloquantes ────────────────────────────────────────────────
-    validation_error = _validate_lead_data(data, sender_phone)
-    if validation_error:
-        logger.warning("Dispatch lead ignoré — %s | data=%s", validation_error, data)
-        return
+    first_name       = (data.get("first_name") or "").strip()
+    last_name        = (data.get("last_name") or "").strip()
+    phone            = (data.get("phone") or "").strip() or sender_phone
+    email            = (data.get("email") or "").strip() or None
+    appointment_date = (data.get("appointment_date") or "").strip()
 
     if not phone:
         logger.warning(
             "Dispatch lead ignoré — phone manquant (ni dans LEAD_DATA ni sender_phone) | data=%s",
             data,
         )
-        return
+        return {"status": "error", "error": "phone manquant"}
 
     logger.info(
         "Dispatch lead — %s %s | phone=%s | rdv=%s | email=%s",
         first_name, last_name, phone, appointment_date, email or "—",
     )
 
-    try:
-        from django_q.tasks import async_task
-        async_task(
-            "api.whatsapp.agent.lead_service.create_lead_async",
-            first_name=first_name,
-            last_name=last_name,
-            phone=phone,
-            email=email,
-            service_summary=service_summary,
-            sender_phone=sender_phone,
-            appointment_date=appointment_date,
-            statut_dossier_id=statut_dossier_id,
-            q_options={
-                "task_name": f"kemora_lead_{sender_phone}",
-                "timeout": 60,
-                "max_attempts": 2,
-            },
-        )
-        logger.info(
-            "Lead dispatché via Django-Q2 — %s %s rdv=%s",
-            first_name, last_name, appointment_date,
-        )
+    # ── Tentative async via Django-Q2 ─────────────────────────────────────────
+    use_async = getattr(settings, "KEMORA_LEAD_ASYNC", False)
 
-    except ImportError:
-        logger.warning("Django-Q2 indisponible — fallback synchrone")
-        from .lead_service import create_lead_from_kemora
-        create_lead_from_kemora(
-            first_name=first_name,
-            last_name=last_name,
-            phone=phone,
-            email=email,
-            service_summary=service_summary,
-            sender_phone=sender_phone,
-            appointment_date=appointment_date,
-            statut_dossier_id=statut_dossier_id,
-        )
+    if use_async:
+        try:
+            from django_q.tasks import async_task
+            async_task(
+                "api.whatsapp.agent.lead_service.create_lead_async",
+                first_name=first_name,
+                last_name=last_name,
+                phone=phone,
+                email=email,
+                sender_phone=sender_phone,
+                appointment_date=appointment_date,
+                q_options={
+                    "task_name": f"kemora_lead_{sender_phone}",
+                    "timeout": 60,
+                    "max_attempts": 2,
+                },
+            )
+            logger.info(
+                "Lead dispatché via Django-Q2 — %s %s rdv=%s",
+                first_name, last_name, appointment_date,
+            )
+            return {"status": "queued"}
 
-    except Exception as exc:
-        logger.exception("Erreur dispatch lead : %s", exc)
+        except ImportError:
+            logger.warning("Django-Q2 indisponible malgré KEMORA_LEAD_ASYNC=True — fallback synchrone")
+        except Exception as exc:
+            logger.warning("Django-Q2 erreur — fallback synchrone : %s", exc)
+
+    # ── Fallback synchrone (défaut) ───────────────────────────────────────────
+    from .lead_service import create_lead_from_kemora
+    result = create_lead_from_kemora(
+        first_name=first_name,
+        last_name=last_name,
+        phone=phone,
+        email=email,
+        sender_phone=sender_phone,
+        appointment_date=appointment_date,
+    )
+
+    logger.info(
+        "Lead dispatch synchrone terminé — status=%s lead_id=%s",
+        result.get("status"), result.get("lead_id"),
+    )
+    return result
 
 
 # ─── Point d'entrée principal ─────────────────────────────────────────────────
@@ -248,11 +268,14 @@ def generate_agent_reply(
     lead=None,
     sender_phone: Optional[str] = None,
     first_contact: bool = True,
-) -> Optional[Tuple[str, None]]:
+) -> Optional[Tuple[str, Optional[dict]]]:
     """
     Génère la réponse de Kemora pour une conversation donnée.
     Chaque appel est totalement indépendant (stateless).
-    Retourne (reply_text, None) — la création lead est asynchrone.
+
+    Retourne (reply_text, lead_result) où :
+      - reply_text  : le texte à envoyer au client (sans bloc LEAD_DATA)
+      - lead_result : dict avec status/lead_id si un lead a été créé/mis à jour, sinon None
     """
     history_text    = ""
     lead_first_name = None
@@ -305,28 +328,40 @@ def generate_agent_reply(
             return None
 
         # ── Extraction + dispatch lead ────────────────────────────────────────
-        lead_data = _extract_lead_data(full_reply)
+        lead_data   = _extract_lead_data(full_reply)
+        lead_result = None
+
         if lead_data:
-            if not lead:
-                # Nouveau client → création complète
-                _dispatch_lead_creation(lead_data, sender_phone or "")
+            # Nouveau client → création complète
+            # Client connu avec nouveau RDV → mise à jour
+            # Dans les deux cas, on passe par _dispatch_lead_creation
+            # qui gère la logique created/updated dans lead_service
+            lead_result = _dispatch_lead_creation(lead_data, sender_phone or "")
+
+            if lead_result.get("status") == "error":
+                logger.error(
+                    "Échec création/mise à jour lead — error=%s | data=%s",
+                    lead_result.get("error"), lead_data,
+                )
             else:
-                # Client connu → mise à jour du RDV si appointment_date présente
-                appointment_date = (lead_data.get("appointment_date") or "").strip()
-                if appointment_date:
-                    _dispatch_lead_creation(lead_data, sender_phone or "")
-                    logger.info(
-                        "Lead connu #%d — mise à jour RDV dispatché : %s",
-                        lead.pk, appointment_date,
-                    )
+                logger.info(
+                    "Lead dispatch OK — status=%s lead_id=%s rdv=%s",
+                    lead_result.get("status"),
+                    lead_result.get("lead_id"),
+                    lead_data.get("appointment_date"),
+                )
 
         clean_reply = _strip_lead_marker(full_reply)
 
         logger.info(
-            "Kemora — réponse | modèle=%s first=%s chars=%d lead_dispatched=%s",
-            _get_model_name(), first_contact, len(clean_reply), bool(lead_data),
+            "Kemora — réponse | modèle=%s first=%s chars=%d lead_dispatched=%s lead_status=%s",
+            _get_model_name(),
+            first_contact,
+            len(clean_reply),
+            bool(lead_data),
+            lead_result.get("status") if lead_result else "—",
         )
-        return clean_reply, None
+        return clean_reply, lead_result
 
     except Exception as exc:
         logger.exception("Erreur appel Gemini : %s", exc)

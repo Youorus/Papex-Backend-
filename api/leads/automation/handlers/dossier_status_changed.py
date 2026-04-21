@@ -36,11 +36,6 @@ def handle_dossier_status_changed(event):
     if lead.email:
         send_dossier_status_notification_task(lead.id)
 
-    # --------------------------
-    # 📱 SMS
-    # --------------------------
-    if lead.phone:
-        send_dossier_status_updated_sms_task(lead.id)
 
     # --------------------------
     # 🧾 LOG

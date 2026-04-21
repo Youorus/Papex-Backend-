@@ -18,11 +18,21 @@ Flux complet (nouveau client) :
 Flux complet (client existant) :
     create_lead_from_kemora()
         → _update_existing_lead_appointment()
-            → LeadEvent.log("APPOINTMENT_UPDATED")  ← event dédié, pas LEAD_CREATED
-                → AutomationEngine.handle()
-                    → handle_appointment_updated()   ← handler dédié à implémenter si besoin
-                        → send_appointment_confirmation_sms_task()
-                        → send_appointment_confirmation_task()   (si email)
+            → LeadEvent.log("APPOINTMENT_UPDATED")
+                → send_appointment_confirmation_sms_task()  (direct)
+                → send_appointment_confirmation_task()      (direct, si email)
+
+Retourne un dict structuré pour que l'engine sache quoi confirmer à Kemora :
+    {
+        "status": "created" | "updated" | "error",
+        "lead_id": int,
+        "first_name": str,
+        "last_name": str,
+        "appointment_date": datetime,
+    }
+
+Champs collectés par Kemora : first_name, last_name, phone, email, appointment_date.
+Pas de service_summary ni statut_dossier_id — non présents dans le modèle Lead.
 """
 
 import logging
@@ -77,6 +87,7 @@ def _migrate_whatsapp_context(sender_phone: str, lead) -> None:
         rattached, lead.pk,
     )
 
+    # Migration des settings agent (pause/active)
     try:
         old = WhatsAppConversationSettings.objects.get(
             lead__isnull=True, sender_phone=sender_phone
@@ -87,19 +98,19 @@ def _migrate_whatsapp_context(sender_phone: str, lead) -> None:
             lead=lead,
             defaults={"agent_enabled": agent_enabled},
         )
+        logger.info(
+            "Settings agent migrés vers lead #%d (agent_enabled=%s)",
+            lead.pk, agent_enabled,
+        )
     except WhatsAppConversationSettings.DoesNotExist:
         pass
 
 
-def _update_existing_lead_appointment(lead, parsed_date, service_summary: Optional[str]) -> None:
+def _update_existing_lead_appointment(lead, parsed_date) -> None:
     """
-    Si le lead existe déjà, on met à jour sa date de RDV.
-    On utilise l'event code APPOINTMENT_UPDATED (et non LEAD_CREATED)
-    pour éviter de re-déclencher toute la chaîne d'automation de création.
-
-    Si l'AutomationEngine doit envoyer des notifications de confirmation
-    pour les mises à jour de RDV, il faut implémenter handle_appointment_updated()
-    dans handlers et le brancher dans l'engine.
+    Met à jour la date de RDV d'un lead existant.
+    Envoie les confirmations SMS + email directement
+    (l'AutomationEngine n'est pas branché sur APPOINTMENT_UPDATED).
     """
     from api.leads_events.models import LeadEvent
     from api.sms.tasks import send_appointment_confirmation_sms_task
@@ -109,7 +120,6 @@ def _update_existing_lead_appointment(lead, parsed_date, service_summary: Option
     lead.appointment_date = parsed_date
     lead.save(update_fields=["appointment_date"])
 
-    # Log avec event code dédié — ne déclenche pas handle_lead_created
     LeadEvent.log(
         lead=lead,
         event_code="APPOINTMENT_UPDATED",
@@ -119,18 +129,17 @@ def _update_existing_lead_appointment(lead, parsed_date, service_summary: Option
             "channel": "whatsapp",
             "old_appointment_date": old_date.isoformat() if old_date else None,
             "new_appointment_date": parsed_date.isoformat(),
-            "service_summary": service_summary or "",
         },
     )
 
-    # Envoi direct des notifications de confirmation (SMS + email si dispo)
-    # car l'AutomationEngine n'est pas branché sur APPOINTMENT_UPDATED
+    # SMS de confirmation
     try:
         send_appointment_confirmation_sms_task(lead.id)
         logger.info("SMS confirmation envoyé pour lead #%d (mise à jour RDV)", lead.pk)
     except Exception as exc:
         logger.exception("Erreur envoi SMS confirmation (update RDV) lead #%d : %s", lead.pk, exc)
 
+    # Email de confirmation si disponible
     if lead.email:
         try:
             send_appointment_confirmation_task(lead.id)
@@ -153,21 +162,18 @@ def create_lead_from_kemora(
     last_name: str,
     phone: str,
     email: Optional[str],
-    service_summary: Optional[str],
     sender_phone: str,
     appointment_date: str,
-    statut_dossier_id: Optional[int] = None,
-):
+) -> dict:
     """
     Crée (ou met à jour) un Lead depuis les données collectées par Kemora.
 
-    Nouveau client  → Lead créé + Client associé + LeadEvent(LEAD_CREATED)
-                      → AutomationEngine → SMS confirmation + Email confirmation
-    Client existant → appointment_date mis à jour + LeadEvent(APPOINTMENT_UPDATED)
-                      → SMS + Email confirmation envoyés directement
-
-    Dans les deux cas, les messages WhatsApp sont rattachés au lead
-    et les settings agent migrent vers le lead connu.
+    Retourne un dict avec :
+        - status : "created" | "updated" | "error"
+        - lead_id : int (si succès)
+        - first_name, last_name : str (pour le message de confirmation)
+        - appointment_date : datetime (pour le message de confirmation)
+        - error : str (si status == "error")
     """
     try:
         from api.lead_status.models import LeadStatus
@@ -177,29 +183,30 @@ def create_lead_from_kemora(
         # ── Nettoyage ─────────────────────────────────────────────────────────
         first_name      = _normalize_identity(first_name)
         last_name       = _normalize_identity(last_name)
-        # sender_phone est le fallback si phone est vide
         effective_phone = (phone or "").strip() or (sender_phone or "").strip()
         effective_email = (email or "").strip() or None
         sender_phone    = (sender_phone or "").strip()
-        service_summary = (service_summary or "").strip() or None
 
         # ── Validations ───────────────────────────────────────────────────────
         if not first_name or not last_name:
             logger.warning("Kemora — création ignorée : prénom/nom manquant")
-            return None
+            return {"status": "error", "error": "prénom/nom manquant"}
 
         if not effective_phone:
             logger.warning("Kemora — création ignorée : téléphone manquant (ni phone ni sender_phone)")
-            return None
+            return {"status": "error", "error": "téléphone manquant"}
 
-        parsed_date = _parse_appointment_date(appointment_date)
+        try:
+            parsed_date = _parse_appointment_date(appointment_date)
+        except ValueError as exc:
+            logger.warning("Kemora — création ignorée : %s", exc)
+            return {"status": "error", "error": str(exc)}
+
         if not parsed_date:
-            logger.warning("Kemora — création ignorée : appointment_date manquante ou invalide")
-            return None
+            logger.warning("Kemora — création ignorée : appointment_date manquante")
+            return {"status": "error", "error": "appointment_date manquante"}
 
         # ── Lead déjà existant ? ──────────────────────────────────────────────
-        # Recherche par téléphone effectif (phone confirmé par la personne)
-        # et par sender_phone (numéro WhatsApp) pour couvrir les deux cas
         existing = (
             Lead.objects.filter(phone=effective_phone).first()
             or (
@@ -215,9 +222,20 @@ def create_lead_from_kemora(
                 effective_phone,
             )
             with transaction.atomic():
-                _update_existing_lead_appointment(existing, parsed_date, service_summary)
+                _update_existing_lead_appointment(existing, parsed_date)
                 _migrate_whatsapp_context(sender_phone, existing)
-            return existing
+
+            logger.info(
+                "Lead #%d mis à jour par Kemora — rdv=%s",
+                existing.pk, parsed_date.isoformat(),
+            )
+            return {
+                "status": "updated",
+                "lead_id": existing.pk,
+                "first_name": existing.first_name,
+                "last_name": existing.last_name,
+                "appointment_date": parsed_date,
+            }
 
         # ── Statut par défaut ─────────────────────────────────────────────────
         try:
@@ -230,34 +248,26 @@ def create_lead_from_kemora(
         lead_source = getattr(LeadSource, "WHATSAPP", LeadSource.WEBSITE)
 
         lead_kwargs = {
-            "first_name":        first_name,
-            "last_name":         last_name,
-            "phone":             effective_phone,
-            "email":             effective_email,
-            "status":            default_status,
-            "source":            lead_source,
-            "appointment_date":  parsed_date,
-            "statut_dossier_id": statut_dossier_id,
+            "first_name":       first_name,
+            "last_name":        last_name,
+            "phone":            effective_phone,
+            "email":            effective_email,
+            "status":           default_status,
+            "source":           lead_source,
+            "appointment_date": parsed_date,
         }
 
         # ── Création atomique via le pipeline standard ────────────────────────
-        # create_lead_with_side_effects :
-        #   1. Crée le Lead + Client associé
-        #   2. LeadEvent.log("LEAD_CREATED")
-        #   3. AutomationEngine.handle(event)
-        #   4. handle_lead_created → SMS confirmation + Email confirmation
         with transaction.atomic():
             lead = create_lead_with_side_effects(
                 actor=None,
                 event_source="whatsapp_agent_kemora",
                 event_data={
-                    "service_summary": service_summary or "",
-                    "sender_phone":    sender_phone,
-                    "channel":         "whatsapp",
+                    "sender_phone": sender_phone,
+                    "channel":      "whatsapp",
                 },
                 lead_kwargs=lead_kwargs,
             )
-
             _migrate_whatsapp_context(sender_phone, lead)
 
         logger.info(
@@ -267,11 +277,17 @@ def create_lead_from_kemora(
             parsed_date.isoformat(),
             effective_email or "—",
         )
-        return lead
+        return {
+            "status": "created",
+            "lead_id": lead.pk,
+            "first_name": lead.first_name,
+            "last_name": lead.last_name,
+            "appointment_date": parsed_date,
+        }
 
     except Exception as exc:
         logger.exception("Erreur création lead depuis Kemora : %s", exc)
-        return None
+        return {"status": "error", "error": str(exc)}
 
 
 # ─── Point d'entrée Django-Q2 ─────────────────────────────────────────────────
@@ -281,27 +297,31 @@ def create_lead_async(
     last_name: str,
     phone: str,
     email: Optional[str],
-    service_summary: Optional[str],
     sender_phone: str,
     appointment_date: str,
-    statut_dossier_id: Optional[int] = None,
 ) -> None:
     """
     Appelé par Django-Q2 worker en tâche de fond.
     Ne bloque pas le webhook WhatsApp.
+    Note : dans ce mode async, on ne peut pas renvoyer de message à l'utilisateur.
+    La confirmation a déjà été envoyée de manière optimiste par l'engine.
     """
     result = create_lead_from_kemora(
         first_name=first_name,
         last_name=last_name,
         phone=phone,
         email=email,
-        service_summary=service_summary,
         sender_phone=sender_phone,
         appointment_date=appointment_date,
-        statut_dossier_id=statut_dossier_id,
     )
 
-    if result:
-        logger.info("create_lead_async OK — lead #%d", result.pk)
+    if result["status"] in ("created", "updated"):
+        logger.info(
+            "create_lead_async OK — status=%s lead_id=%s",
+            result["status"], result.get("lead_id"),
+        )
     else:
-        logger.error("create_lead_async ÉCHEC — phone=%s", sender_phone)
+        logger.error(
+            "create_lead_async ÉCHEC — phone=%s error=%s",
+            sender_phone, result.get("error"),
+        )

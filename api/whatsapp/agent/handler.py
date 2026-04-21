@@ -2,6 +2,12 @@
 Handler Kemora — Papiers Express
 Gère les conversations parallèles, détecte le premier contact,
 traite les médias sans appel Gemini.
+
+Note sur lead_id vs lead :
+  Django-Q2 sérialise les arguments via pickle entre le process web et le worker.
+  Les objets ORM Django ne se sérialisent pas proprement entre process
+  (connexion DB différente, état potentiellement périmé).
+  → On passe toujours lead_id (int | None) et on recharge depuis la DB dans le worker.
 """
 
 import logging
@@ -39,6 +45,17 @@ def _should_reply(body: str) -> bool:
     return bool(body and body.strip())
 
 
+def _resolve_lead(lead_id: Optional[int]):
+    """Recharge le lead depuis la DB. Retourne None si introuvable."""
+    if not lead_id:
+        return None
+    try:
+        from api.leads.models import Lead
+        return Lead.objects.get(pk=lead_id)
+    except Exception:
+        return None
+
+
 def _is_first_contact(lead=None, sender_phone: str = "") -> bool:
     """Une requête BDD ciblée — index sur sender_phone + is_outbound."""
     try:
@@ -56,8 +73,15 @@ def _is_first_contact(lead=None, sender_phone: str = "") -> bool:
 def trigger_agent_response(
     incoming_body: str,
     sender_phone: str,
-    lead=None,
+    lead_id: Optional[int] = None,     # ← int pour compatibilité Django-Q2 pickle
+    lead=None,                          # ← fallback si appelé directement (tests, etc.)
 ) -> Optional[str]:
+    """
+    Point d'entrée appelé par Django-Q2 dans le worker process.
+
+    Accepte lead_id (int) pour la sérialisation inter-process,
+    ou lead (objet ORM) pour les appels directs (tests, fallback sync).
+    """
     from django.conf import settings
 
     if not getattr(settings, "WHATSAPP_AGENT_ENABLED", False):
@@ -65,6 +89,10 @@ def trigger_agent_response(
 
     if not _should_reply(incoming_body):
         return None
+
+    # Résolution du lead : priorité à lead_id (chemin Q2), fallback sur lead (chemin direct)
+    if lead is None and lead_id is not None:
+        lead = _resolve_lead(lead_id)
 
     # Vérification activation par conversation
     try:
@@ -89,8 +117,6 @@ def trigger_agent_response(
         return _send_and_save(reply, sender_phone, lead)
 
     # Texte → Gemini
-    # sender_phone est passé à l'engine pour être injecté dans le prompt
-    # afin que Kemora puisse le mentionner lors de la confirmation du numéro
     from .engine import generate_agent_reply
     result = generate_agent_reply(
         incoming_message=incoming_body,
@@ -102,7 +128,23 @@ def trigger_agent_response(
     if not result:
         return None
 
-    reply_text, _ = result
+    reply_text, lead_result = result
+
+    if lead_result:
+        status = lead_result.get("status")
+        if status in ("created", "updated"):
+            logger.info(
+                "Lead %s — id=%s phone=%s",
+                "créé" if status == "created" else "mis à jour",
+                lead_result.get("lead_id"),
+                sender_phone,
+            )
+        elif status == "error":
+            logger.error(
+                "Échec lead — phone=%s error=%s",
+                sender_phone, lead_result.get("error"),
+            )
+
     return _send_and_save(reply_text, sender_phone, lead)
 
 

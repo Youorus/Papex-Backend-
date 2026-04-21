@@ -355,42 +355,45 @@ Q_CLUSTER = {
     "name": "papex",
 
     # ── Broker ──────────────────────────────────────────────
-    # "orm" = ta base Postgres. Aucun Redis, aucun RabbitMQ nécessaire.
-    "orm": "default",
+    "orm": "default",  # Postgres — aucun Redis nécessaire pour les tâches
 
     # ── Workers ─────────────────────────────────────────────
-    # Sur 1 CPU / 2 Go : 2 workers est le bon équilibre.
-    # Augmenter au-delà de 4 saturera le CPU sur Render Standard.
-    "workers": 2,
+    # ⬆️  Augmenté de 2 → 4 pour gérer la charge Kemora (I/O-bound)
+    # Chaque worker traite 1 conversation Kemora à la fois.
+    # Les autres messages attendent en file Postgres (pas de perte).
+    "workers": 4,
 
-    # ── Taille de la file mémoire par worker ────────────────
-    # Limite la RAM consommée (10 tâches max en attente par worker).
-    "queue_limit": 10,
+    # ── File mémoire par worker ──────────────────────────────
+    # 5 tâches max en attente par worker en mémoire.
+    # Le reste reste en base (pas de perte si restart).
+    "queue_limit": 5,
 
     # ── Retry & timeouts ────────────────────────────────────
-    "retry": 400,           # Réessaie une tâche échouée après 60 s
-    "timeout": 300,        # Tâche killée si > 5 min (évite les zombies)
-    "max_attempts": 3,     # 3 tentatives max avant abandon définitif
+    # Kemora appelle Gemini (~8s) + Meta API (~1s) = ~10s nominal.
+    # On donne 90s max avant de killer la tâche (timeout réseau inclus).
+    "timeout": 90,
+    # Réessaie une tâche échouée après 60s (évite de spammer Gemini si erreur)
+    "retry": 60,
+    # 2 tentatives max — si Gemini est down 2 fois, on abandonne proprement
+    "max_attempts": 2,
 
     # ── Polling ─────────────────────────────────────────────
-    # Fréquence de polling de la DB (en secondes).
-    # 2 s = réactif sans marteler la base.
-    "poll": 2,
+    # 1s = très réactif. À 100 messages/min, ça ne charge pas la DB
+    # (1 SELECT léger par seconde par worker = 4 SELECT/s au total).
+    "poll": 1,
 
     # ── Scheduler ───────────────────────────────────────────
-    # Activer le scheduler interne (remplace Celery Beat)
     "schedule_tasks": True,
 
     # ── Timezone ────────────────────────────────────────────
     "timezone": "Europe/Paris",
 
     # ── Compression des arguments ───────────────────────────
-    # Réduit la taille des payloads stockés en base.
     "compress": True,
 
-    # ── Sauvegarde des résultats réussis ────────────────────
-    # Garde les 250 derniers résultats (succès + erreurs)
-    "save_limit": 250,
+    # ── Sauvegarde des résultats ────────────────────────────
+    # Garde les 500 derniers résultats pour debug Kemora dans /admin/
+    "save_limit": 500,
 
     # ── Log level ───────────────────────────────────────────
     "log_level": "INFO",
