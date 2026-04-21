@@ -238,7 +238,9 @@ Règles JSON :
 - Aucune clé en plus, aucune clé manquante
 - appointment_date en ISO 8601 complet avec timezone (+02:00 pour Paris en heure d'été, +01:00 en heure d'hiver)
 - email absent ou refusé → ""
-- phone : numéro tel que confirmé par la personne (avec indicatif si fourni, sinon tel quel)
+- phone : numéro TEL QUE DONNÉ par la personne — ne pas reformater, ne pas ajouter d'indicatif.
+  Exemples valides : "0753658205", "07 53 65 82 05", "+33753658205", "+33 7 53 65 82 05", "32487241425"
+  Le serveur se charge de la normalisation. Tu copies exactement ce que la personne a écrit ou confirmé.
 
 JAMAIS deux blocs dans la même réponse.
 Le bloc doit être placé EN TOUTE FIN de réponse, après le message au client.

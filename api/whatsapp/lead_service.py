@@ -54,6 +54,54 @@ def _normalize_identity(value: Optional[str]) -> str:
     return (value or "").strip().capitalize()
 
 
+def _normalize_phone(phone: Optional[str], fallback: Optional[str] = None) -> str:
+    """
+    Normalise un numéro de téléphone en format E.164 sans le +.
+
+    Gère tous les formats courants :
+        "07 53 65 82 05"        → "33753658205"
+        "0753658205"            → "33753658205"
+        "+33 7 53 65 82 05"     → "33753658205"
+        "+33753658205"          → "33753658205"
+        "33753658205"           → "33753658205"  (déjà correct)
+        "0032487241425"         → "32487241425"  (Belgique)
+        "+32 487 24 14 25"      → "32487241425"  (Belgique)
+
+    Si le numéro est vide ou invalide, utilise le fallback (sender_phone).
+    """
+    raw = (phone or "").strip()
+
+    # Retire tout sauf les chiffres et le +
+    digits_only = "".join(c for c in raw if c.isdigit())
+
+    if not digits_only:
+        # Numéro vide → fallback sur sender_phone
+        fallback_digits = "".join(c for c in (fallback or "") if c.isdigit())
+        if fallback_digits.startswith("0"):
+            fallback_digits = "33" + fallback_digits[1:]
+        return fallback_digits
+
+    # Commence par 00 → indicatif international (ex: 0033..., 0032...)
+    if digits_only.startswith("00"):
+        return digits_only[2:]
+
+    # Commence par 0 → numéro local France → ajoute 33
+    if digits_only.startswith("0"):
+        return "33" + digits_only[1:]
+
+    # Commence par 33, 32, 44, etc. → déjà en format international
+    # On vérifie que c'est bien un indicatif connu (longueur >= 10 chiffres)
+    if len(digits_only) >= 10:
+        return digits_only
+
+    # Cas court ou inconnu → fallback
+    logger.warning("Numéro de téléphone court ou non reconnu : %r → fallback", raw)
+    fallback_digits = "".join(c for c in (fallback or "") if c.isdigit())
+    if fallback_digits.startswith("0"):
+        fallback_digits = "33" + fallback_digits[1:]
+    return fallback_digits or digits_only
+
+
 def _parse_appointment_date(value: Optional[str]):
     """
     Parse une date ISO 8601.
@@ -183,9 +231,10 @@ def create_lead_from_kemora(
         # ── Nettoyage ─────────────────────────────────────────────────────────
         first_name      = _normalize_identity(first_name)
         last_name       = _normalize_identity(last_name)
-        effective_phone = (phone or "").strip() or (sender_phone or "").strip()
+        # Normalisation E.164 : "07 53 65 82 05" → "33753658205"
+        effective_phone = _normalize_phone(phone, fallback=sender_phone)
         effective_email = (email or "").strip() or None
-        sender_phone    = (sender_phone or "").strip()
+        sender_phone    = "".join(c for c in (sender_phone or "") if c.isdigit())
 
         # ── Validations ───────────────────────────────────────────────────────
         if not first_name or not last_name:
@@ -207,13 +256,12 @@ def create_lead_from_kemora(
             return {"status": "error", "error": "appointment_date manquante"}
 
         # ── Lead déjà existant ? ──────────────────────────────────────────────
+        # Recherche par numéro exact normalisé, puis par les 9 derniers chiffres
+        # pour matcher peu importe le format stocké (0753..., 33753..., +33753...)
+        phone_suffix = effective_phone[-9:] if len(effective_phone) >= 9 else effective_phone
         existing = (
             Lead.objects.filter(phone=effective_phone).first()
-            or (
-                Lead.objects.filter(phone=sender_phone).first()
-                if sender_phone and sender_phone != effective_phone
-                else None
-            )
+            or Lead.objects.filter(phone__endswith=phone_suffix).first()
         )
 
         if existing:
