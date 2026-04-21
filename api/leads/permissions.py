@@ -1,8 +1,13 @@
-# api/leads/test_permissions.py
+# api/leads/permissions.py
 
-from rest_framework.permissions import SAFE_METHODS, BasePermission
-
+from rest_framework.permissions import BasePermission
 from api.users.roles import UserRoles
+
+# Rôles avec droits complets (équivalents ADMIN)
+FULL_ACCESS_ROLES = [
+    UserRoles.ADMIN,
+    UserRoles.JURISTE,
+]
 
 
 class IsLeadCreator(BasePermission):
@@ -21,7 +26,7 @@ class IsLeadCreator(BasePermission):
         if getattr(view, "action", None) == "public_create":
             return True
 
-        # Création d’un lead
+        # Création d'un lead
         if view.action == "create":
             return (
                 request.user
@@ -40,7 +45,8 @@ class IsLeadCreator(BasePermission):
 
 class IsConseillerOrAdmin(BasePermission):
     """
-    Seuls ADMIN ou CONSEILLER peuvent gérer les assignations.
+    ADMIN, CONSEILLER et JURISTE peuvent gérer les assignations.
+    ✅ JURISTE ajouté — droits équivalents à ADMIN.
     """
 
     def has_permission(self, request, view):
@@ -50,16 +56,15 @@ class IsConseillerOrAdmin(BasePermission):
             and request.user.role in [
                 UserRoles.ADMIN,
                 UserRoles.CONSEILLER,
+                UserRoles.JURISTE,  # ✅ ajouté
             ]
         )
 
 
-
 class CanAssignLead(BasePermission):
     """
-    ADMIN, CONSEILLER et JURISTE peuvent accéder à l'endpoint d'assignation.
-    - ADMIN : peut assigner/désassigner n'importe qui
-    - CONSEILLER / JURISTE : auto-assignation uniquement
+    ADMIN, CONSEILLER et JURISTE peuvent assigner n'importe qui.
+    ✅ JURISTE a les mêmes droits qu'ADMIN (plus de restriction auto-assignation).
     """
 
     def has_permission(self, request, view):

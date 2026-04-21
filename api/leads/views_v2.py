@@ -26,20 +26,19 @@ class LeadViewSetV2(viewsets.ModelViewSet):
         user = self.request.user
 
         queryset = Lead.objects.all().prefetch_related(
-            "assigned_to",
+            "assigned_to",        # ✅ Typo corrigée
             "jurist_assigned",
         )
 
         # ==========================
         # 🔒 FILTRAGE PAR RÔLE
+        # ADMIN et JURISTE → accès total, aucun filtre
+        # AVOCAT → uniquement ses leads assignés
         # ==========================
         if user.is_authenticated:
-
             if user.role == UserRoles.AVOCAT:
                 queryset = queryset.filter(assigned_to=user)
-
-            elif user.role == UserRoles.JURISTE:
-                queryset = queryset.filter(assigned_to=user)
+            # ✅ JURISTE : plus de filtre restrictif → accès à tous les leads
 
         # ==========================
         # 🔍 FILTRES
@@ -52,9 +51,14 @@ class LeadViewSetV2(viewsets.ModelViewSet):
         # 🧠 TRI INTELLIGENT
         # ==========================
 
-        # 👨‍⚖️ JURISTE → priorité urgent
+        # 👨‍⚖️ JURISTE → ses leads assignés remontent en premier, puis urgents, puis récents
         if user.role == UserRoles.JURISTE:
             queryset = queryset.annotate(
+                assigned_order=Case(
+                    When(assigned_to=user, then=0),
+                    default=1,
+                    output_field=IntegerField(),
+                ),
                 urgent_order=Case(
                     When(is_urgent=True, then=0),
                     default=1,
@@ -71,13 +75,14 @@ class LeadViewSetV2(viewsets.ModelViewSet):
                     output_field=DateTimeField(),
                 )
             ).order_by(
-                "urgent_order",  # 🔥 urgent en premier
-                "-created_at",  # 🆕 récents
+                "assigned_order",  # 🔝 ses leads en premier
+                "urgent_order",    # 🔥 urgents ensuite
+                "-created_at",     # 🆕 récents
                 "has_appointment",
                 "appointment_sort",
             )
 
-        # 👑 AUTRES → ton tri actuel
+        # 👑 AUTRES → tri standard
         else:
             queryset = queryset.annotate(
                 has_appointment=Case(
@@ -99,6 +104,26 @@ class LeadViewSetV2(viewsets.ModelViewSet):
         return queryset
 
     # ==========================
+    # SÉCURITÉ (DETAIL)
+    # ✅ JURISTE : accès total, aucune restriction
+    # AVOCAT : uniquement ses leads assignés
+    # ==========================
+
+    def get_object(self):
+        from django.shortcuts import get_object_or_404
+        obj = get_object_or_404(Lead, pk=self.kwargs["pk"])
+
+        user = self.request.user
+
+        if user.role == UserRoles.AVOCAT:
+            if not obj.assigned_to.filter(id=user.id).exists():
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Accès interdit à ce lead.")
+
+        self.check_object_permissions(self.request, obj)
+        return obj
+
+    # ==========================
     # FILTRES
     # ==========================
 
@@ -106,12 +131,12 @@ class LeadViewSetV2(viewsets.ModelViewSet):
         detail=False,
         methods=["post"],
         url_path="public-create",
-        permission_classes=[AllowAny]  # ⚠️ Important : override la permission
+        permission_classes=[AllowAny]
     )
     def public_create(self, request):
         """
-        Endpoint public pour créer un lead depuis le formulaire de booking
-        Sans authentification requise
+        Endpoint public pour créer un lead depuis le formulaire de booking.
+        Sans authentification requise.
         """
         serializer = self.get_serializer(data=request.data)
 
@@ -121,23 +146,18 @@ class LeadViewSetV2(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Création du lead
         lead = serializer.save()
 
-        # Création du client associé
         from api.clients.models import Client
         Client.objects.get_or_create(lead=lead)
 
-        # Log de l'événement (sans actor car public)
-        from api.leads_events.models import LeadEvent
         LeadEvent.log(
             lead=lead,
             event_code="LEAD_CREATED",
-            actor=None,  # Pas d'utilisateur connecté
+            actor=None,
             data={"source": "booking_form"}
         )
 
-        # Retourne les données du lead créé
         return Response(
             self.get_serializer(lead).data,
             status=status.HTTP_201_CREATED
@@ -165,21 +185,6 @@ class LeadViewSetV2(viewsets.ModelViewSet):
         if date_str:
             return queryset.filter(appointment_date__date=date_str)
         return queryset
-
-    # ==========================
-    # SÉCURITÉ (DETAIL)
-    # ==========================
-
-    def get_object(self):
-        obj = super().get_object()
-        user = self.request.user
-
-        if user.role == UserRoles.JURISTE:
-            if not obj.assigned_to.filter(id=user.id).exists():
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied("Accès interdit à ce lead.")
-
-        return obj
 
     # ==========================
     # ASSIGN (1 lead)
@@ -330,7 +335,3 @@ class LeadViewSetV2(viewsets.ModelViewSet):
                     "to": lead.statut_dossier.id if lead.statut_dossier else None,
                 }
             )
-            # ✅ Pas d'appel manuel ici — LeadEvent.log déclenche déjà
-            # AutomationEngine.handle() → handle_dossier_status_changed()
-            # via le registry. Appeler handle_dossier_status_changed() en plus
-            # envoyait le mail en double.

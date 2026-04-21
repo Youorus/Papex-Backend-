@@ -146,7 +146,10 @@ class LeadSerializer(serializers.ModelSerializer):
     )
 
     assigned_to_ids = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.filter(role=UserRoles.CONSEILLER, is_active=True),
+        queryset=User.objects.filter(
+            role__in=[UserRoles.CONSEILLER, UserRoles.JURISTE],  # ✅ JURISTE peut aussi être assigné
+            is_active=True,
+        ),
         many=True,
         source="assigned_to",
         write_only=True,
