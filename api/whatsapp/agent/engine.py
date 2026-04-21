@@ -28,6 +28,7 @@ from .prompt import (
     LEAD_DATA_MARKER,
     LEAD_DATA_END,
 )
+from ..lead_service import create_lead_from_kemora
 from ..models import WhatsAppMessage
 
 logger = logging.getLogger(__name__)
@@ -244,7 +245,6 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
             logger.warning("Django-Q2 erreur — fallback synchrone : %s", exc)
 
     # ── Fallback synchrone (défaut) ───────────────────────────────────────────
-    from .lead_service import create_lead_from_kemora
     result = create_lead_from_kemora(
         first_name=first_name,
         last_name=last_name,
