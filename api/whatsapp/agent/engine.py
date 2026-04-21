@@ -28,7 +28,6 @@ from .prompt import (
     LEAD_DATA_MARKER,
     LEAD_DATA_END,
 )
-from ..lead_service import create_lead_from_kemora
 from ..models import WhatsAppMessage
 
 logger = logging.getLogger(__name__)
@@ -89,7 +88,17 @@ def _build_prompt(
     sender_phone: Optional[str] = None,
     first_contact: bool = True,
 ) -> str:
+    from django.utils import timezone as tz
+    import locale
     parts = []
+
+    # Date actuelle injectée pour que Kemora puisse résoudre "demain", "après-demain", etc.
+    now = tz.localtime(tz.now())
+    jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+    mois  = ["janvier", "février", "mars", "avril", "mai", "juin",
+              "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+    date_str = f"{jours[now.weekday()]} {now.day} {mois[now.month - 1]} {now.year}"
+    parts.append(f"[DATE_ACTUELLE: {date_str} — utilise cette date pour calculer 'demain', 'après-demain', etc. et toujours demander confirmation]")
 
     if lead_first_name:
         parts.append(f"[CRM: client connu, prénom = {lead_first_name}]")
@@ -220,7 +229,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         try:
             from django_q.tasks import async_task
             async_task(
-                "api.whatsapp.agent.lead_service.create_lead_async",
+                "api.whatsapp.lead_service.create_lead_async",
                 first_name=first_name,
                 last_name=last_name,
                 phone=phone,
@@ -245,6 +254,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
             logger.warning("Django-Q2 erreur — fallback synchrone : %s", exc)
 
     # ── Fallback synchrone (défaut) ───────────────────────────────────────────
+    from api.whatsapp.lead_service import create_lead_from_kemora
     result = create_lead_from_kemora(
         first_name=first_name,
         last_name=last_name,
