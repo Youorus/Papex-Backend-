@@ -142,39 +142,29 @@ def _process_incoming_message(msg: dict):
     # Meta exige une réponse HTTP sous 5 secondes.
     # Gemini prend 5-15 secondes → on délègue à un worker Django-Q2.
     # Chaque conversation est indépendante (stateless engine) : pas de race condition.
-    _dispatch_agent_q2(text_body=text_body, sender_phone=wa_phone, lead=lead)
+    _dispatch_agent_q2(text_body=text_body, sender_phone=wa_phone, lead=lead, wa_message_id=wa_id)
 
 
-def _dispatch_agent_q2(text_body: str, sender_phone: str, lead) -> None:
+def _dispatch_agent_q2(text_body: str, sender_phone: str, lead, wa_message_id: str = "") -> None:
     """
     Enfile la tâche Kemora dans Django-Q2 (broker Postgres).
-
-    Avantages vs threading.Thread :
-      - Retry automatique si Gemini timeout ou erreur réseau
-      - Monitoring dans /admin/ → Django Q → Tasks
-      - Survit à un redémarrage du process (tâche en base, pas en mémoire)
-      - Pas de limite de concurrence côté Django web
-
-    lead_id est passé plutôt que l'objet ORM pour éviter les problèmes
-    de sérialisation pickle entre process.
+    wa_message_id est l'ID du message reçu — nécessaire pour le typing indicator.
     """
     lead_id = getattr(lead, "id", None)
 
     try:
         from django_q.tasks import async_task
         task_id = async_task(
-            # Chemin Python complet de la fonction à exécuter dans le worker
             "api.whatsapp.agent.handler.trigger_agent_response",
-            # Arguments — on passe lead_id (int) plutôt que l'objet ORM
             incoming_body=text_body,
             sender_phone=sender_phone,
             lead_id=lead_id,
-            # Options Q2
+            wa_message_id=wa_message_id,
             q_options={
                 "task_name": f"kemora_{sender_phone[-8:]}",
-                "timeout":   120,        # Kill la tâche si Gemini ne répond pas en 2 min
-                "max_attempts": 2,       # 1 retry si erreur (timeout Gemini, réseau...)
-                "group": "kemora",       # Groupe pour filtrer dans /admin/
+                "timeout":   120,
+                "max_attempts": 2,
+                "group": "kemora",
             },
         )
         logger.info(
@@ -182,8 +172,6 @@ def _dispatch_agent_q2(text_body: str, sender_phone: str, lead) -> None:
             task_id, sender_phone, lead_id,
         )
     except Exception as exc:
-        # Si Django-Q2 est down pour une raison quelconque, fallback synchrone
-        # pour ne jamais perdre un message client
         logger.error(
             "Django-Q2 indisponible — fallback synchrone | phone=%s | error=%s",
             sender_phone, exc,
@@ -194,6 +182,7 @@ def _dispatch_agent_q2(text_body: str, sender_phone: str, lead) -> None:
                 incoming_body=text_body,
                 sender_phone=sender_phone,
                 lead_id=lead_id,
+                wa_message_id=wa_message_id,
             )
         except Exception as exc2:
             logger.exception(

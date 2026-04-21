@@ -1,16 +1,5 @@
 import logging
-from api.utils.email.leads.tasks import (
-    send_dossier_status_notification_task
-)
-from api.sms.tasks import send_dossier_status_updated_sms_task
-
-logger = logging.getLogger(__name__)
-
-
-import logging
-from api.utils.email.leads.tasks import (
-    send_dossier_status_notification_task
-)
+from api.utils.email.leads.tasks import send_dossier_status_notification_task
 from api.sms.tasks import send_dossier_status_updated_sms_task
 
 logger = logging.getLogger(__name__)

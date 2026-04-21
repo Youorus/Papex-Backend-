@@ -73,14 +73,12 @@ def _is_first_contact(lead=None, sender_phone: str = "") -> bool:
 def trigger_agent_response(
     incoming_body: str,
     sender_phone: str,
-    lead_id: Optional[int] = None,     # ← int pour compatibilité Django-Q2 pickle
-    lead=None,                          # ← fallback si appelé directement (tests, etc.)
+    lead_id: Optional[int] = None,
+    lead=None,
+    wa_message_id: str = "",       # ID du message reçu — pour le typing indicator
 ) -> Optional[str]:
     """
     Point d'entrée appelé par Django-Q2 dans le worker process.
-
-    Accepte lead_id (int) pour la sérialisation inter-process,
-    ou lead (objet ORM) pour les appels directs (tests, fallback sync).
     """
     from django.conf import settings
 
@@ -90,7 +88,7 @@ def trigger_agent_response(
     if not _should_reply(incoming_body):
         return None
 
-    # Résolution du lead : priorité à lead_id (chemin Q2), fallback sur lead (chemin direct)
+    # Résolution du lead
     if lead is None and lead_id is not None:
         lead = _resolve_lead(lead_id)
 
@@ -105,10 +103,18 @@ def trigger_agent_response(
     except Exception as exc:
         logger.warning("Vérif settings agent échouée : %s", exc)
 
-    # Détection premier contact AVANT d'enregistrer le message sortant
     first_contact = _is_first_contact(lead=lead, sender_phone=sender_phone)
 
-    # Médias → réponse statique immédiate (0 token Gemini)
+    # ── Typing indicator — affiche "•••" dès que le worker démarre ────────────
+    # On l'envoie ICI, avant tout appel Gemini, pour que le client voit
+    # immédiatement que Kemora est "en train d'écrire".
+    # Non bloquant : si ça échoue, on continue normalement.
+    if wa_message_id:
+        from api.whatsapp.utils import send_typing_indicator
+        to_phone_normalized = normalize_phone_for_meta(sender_phone)
+        send_typing_indicator(to_phone_normalized, wa_message_id)
+
+    # Médias → réponse statique (pas besoin de typing indicator prolongé)
     body_stripped = incoming_body.strip()
     if _is_media(body_stripped):
         media_dict = MEDIA_FIRST if first_contact else MEDIA_ONGOING
@@ -116,7 +122,7 @@ def trigger_agent_response(
         logger.info("Réponse média statique (first=%s) — phone=%s", first_contact, sender_phone)
         return _send_and_save(reply, sender_phone, lead)
 
-    # Texte → Gemini
+    # Texte → Gemini (le typing indicator reste affiché pendant ce temps)
     from .engine import generate_agent_reply
     result = generate_agent_reply(
         incoming_message=incoming_body,

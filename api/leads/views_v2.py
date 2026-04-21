@@ -321,9 +321,7 @@ class LeadViewSetV2(viewsets.ModelViewSet):
 
         # 📁 changement dossier
         if old_dossier_status != lead.statut_dossier:
-            from api.leads.automation.handlers.dossier_status_changed import handle_dossier_status_changed
-
-            event = LeadEvent.log(
+            LeadEvent.log(
                 lead=lead,
                 event_code="DOSSIER_STATUS_CHANGED",
                 actor=self.request.user,
@@ -332,5 +330,7 @@ class LeadViewSetV2(viewsets.ModelViewSet):
                     "to": lead.statut_dossier.id if lead.statut_dossier else None,
                 }
             )
-
-            handle_dossier_status_changed(event)
+            # ✅ Pas d'appel manuel ici — LeadEvent.log déclenche déjà
+            # AutomationEngine.handle() → handle_dossier_status_changed()
+            # via le registry. Appeler handle_dossier_status_changed() en plus
+            # envoyait le mail en double.
