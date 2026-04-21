@@ -84,33 +84,60 @@ def _format_history(messages) -> str:
 def _build_prompt(
     incoming_message: str,
     history_text: str,
+    lead=None,                        # ← objet Lead complet pour injection CRM
     lead_first_name: Optional[str] = None,
     sender_phone: Optional[str] = None,
     first_contact: bool = True,
 ) -> str:
     from django.utils import timezone as tz
-    import locale
     parts = []
 
-    # Date actuelle injectée pour que Kemora puisse résoudre "demain", "après-demain", etc.
-    now = tz.localtime(tz.now())
+    # ── Date actuelle ─────────────────────────────────────────────────────────
+    now   = tz.localtime(tz.now())
     jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
     mois  = ["janvier", "février", "mars", "avril", "mai", "juin",
-              "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
-    date_str = f"{jours[now.weekday()]} {now.day} {mois[now.month - 1]} {now.year}"
-    parts.append(f"[DATE_ACTUELLE: {date_str} — utilise cette date pour calculer 'demain', 'après-demain', etc. et toujours demander confirmation]")
+             "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+    date_str     = f"{jours[now.weekday()]} {now.day} {mois[now.month - 1]} {now.year}"
+    demain       = now + __import__("datetime").timedelta(days=1)
+    demain_str   = f"{jours[demain.weekday()]} {demain.day} {mois[demain.month - 1]} {demain.year}"
+    parts.append(
+        f"[DATE_ACTUELLE: {date_str} | DEMAIN: {demain_str} — "
+        f"utilise ces dates pour résoudre 'demain', 'après-demain', etc. "
+        f"Toujours demander confirmation avant de générer le bloc.]"
+    )
 
-    if lead_first_name:
-        parts.append(f"[CRM: client connu, prénom = {lead_first_name}]")
+    # ── Données CRM ───────────────────────────────────────────────────────────
+    # On injecte TOUTES les infos disponibles du lead pour éviter de les redemander
+    if lead:
+        crm_lines = ["[CRM: CLIENT CONNU — informations déjà enregistrées :"]
+        crm_lines.append(f"  prénom     = {lead.first_name}")
+        crm_lines.append(f"  nom        = {lead.last_name}")
+        crm_lines.append(f"  téléphone  = {lead.phone}")
+        crm_lines.append(f"  email      = {lead.email or '(non renseigné)'}")
+        if lead.appointment_date:
+            apt = tz.localtime(lead.appointment_date)
+            apt_str = f"{jours[apt.weekday()]} {apt.day} {mois[apt.month - 1]} {apt.year} à {apt.strftime('%H:%M')}"
+            crm_lines.append(f"  RDV actuel = {apt_str}")
+        else:
+            crm_lines.append("  RDV actuel = (aucun)")
+        crm_lines.append(
+            "→ NE REDEMANDE PAS ces informations. "
+            "Utilise-les directement dans le bloc LEAD_DATA si un RDV est pris.]"
+        )
+        parts.append("\n".join(crm_lines))
+    elif lead_first_name:
+        parts.append(f"[CRM: client partiellement connu, prénom = {lead_first_name}]")
     else:
-        parts.append("[CRM: client inconnu, non enregistré]")
+        parts.append("[CRM: client inconnu, non enregistré — collecte toutes les informations]")
 
+    # ── Numéro WhatsApp ───────────────────────────────────────────────────────
     if sender_phone:
         parts.append(
-            f"[SENDER_PHONE: {sender_phone} — c'est le numéro WhatsApp de la personne. "
-            f"Quand tu demandes la confirmation du téléphone, mentionne ce numéro explicitement.]"
+            f"[SENDER_PHONE: {sender_phone} — numéro WhatsApp de la personne. "
+            f"Mentionne-le lors de la confirmation du téléphone si non connu du CRM.]"
         )
 
+    # ── État de la conversation ───────────────────────────────────────────────
     if first_contact:
         parts.append(
             "[ÉTAT: PREMIER CONTACT — présente-toi brièvement en tant que Kemora "
@@ -321,6 +348,7 @@ def generate_agent_reply(
         prompt = _build_prompt(
             incoming_message=incoming_message,
             history_text=history_text,
+            lead=lead,
             lead_first_name=lead_first_name,
             sender_phone=sender_phone,
             first_contact=first_contact,
