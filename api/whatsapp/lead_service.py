@@ -212,6 +212,7 @@ def create_lead_from_kemora(
     email: Optional[str],
     sender_phone: str,
     appointment_date: str,
+    appointment_type: str = "presentiel",  # "presentiel" | "visio"
 ) -> dict:
     """
     Crée (ou met à jour) un Lead depuis les données collectées par Kemora.
@@ -229,12 +230,12 @@ def create_lead_from_kemora(
         from api.leads.models import Lead
 
         # ── Nettoyage ─────────────────────────────────────────────────────────
-        first_name      = _normalize_identity(first_name)
-        last_name       = _normalize_identity(last_name)
-        # Normalisation E.164 : "07 53 65 82 05" → "33753658205"
-        effective_phone = _normalize_phone(phone, fallback=sender_phone)
-        effective_email = (email or "").strip() or None
-        sender_phone    = "".join(c for c in (sender_phone or "") if c.isdigit())
+        first_name       = _normalize_identity(first_name)
+        last_name        = _normalize_identity(last_name)
+        effective_phone  = _normalize_phone(phone, fallback=sender_phone)
+        effective_email  = (email or "").strip() or None
+        sender_phone     = "".join(c for c in (sender_phone or "") if c.isdigit())
+        appointment_type = appointment_type if appointment_type in ("presentiel", "visio") else "presentiel"
 
         # ── Validations ───────────────────────────────────────────────────────
         if not first_name or not last_name:
@@ -296,13 +297,14 @@ def create_lead_from_kemora(
         lead_source = getattr(LeadSource, "WHATSAPP", LeadSource.WEBSITE)
 
         lead_kwargs = {
-            "first_name":       first_name,
-            "last_name":        last_name,
-            "phone":            effective_phone,
-            "email":            effective_email,
-            "status":           default_status,
-            "source":           lead_source,
-            "appointment_date": parsed_date,
+            "first_name":        first_name,
+            "last_name":         last_name,
+            "phone":             effective_phone,
+            "email":             effective_email,
+            "status":            default_status,
+            "source":            lead_source,
+            "appointment_date":  parsed_date,
+            "appointment_type":  appointment_type,
         }
 
         # ── Création atomique via le pipeline standard ────────────────────────
@@ -347,12 +349,10 @@ def create_lead_async(
     email: Optional[str],
     sender_phone: str,
     appointment_date: str,
+    appointment_type: str = "presentiel",
 ) -> None:
     """
     Appelé par Django-Q2 worker en tâche de fond.
-    Ne bloque pas le webhook WhatsApp.
-    Note : dans ce mode async, on ne peut pas renvoyer de message à l'utilisateur.
-    La confirmation a déjà été envoyée de manière optimiste par l'engine.
     """
     result = create_lead_from_kemora(
         first_name=first_name,
@@ -361,6 +361,7 @@ def create_lead_async(
         email=email,
         sender_phone=sender_phone,
         appointment_date=appointment_date,
+        appointment_type=appointment_type,
     )
 
     if result["status"] in ("created", "updated"):
