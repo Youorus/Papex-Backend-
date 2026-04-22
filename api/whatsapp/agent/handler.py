@@ -21,6 +21,9 @@ import logging
 from typing import Optional, Tuple
 
 from django.conf import settings
+from django.db import transaction
+
+from api.leads.models import Lead
 
 from .prompt import (
     SYSTEM_PROMPT,
@@ -29,11 +32,12 @@ from .prompt import (
     LEAD_DATA_END,
 )
 from ..models import WhatsAppMessage
+from ..utils import normalize_phone_for_meta, send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_MESSAGES = 15
-MAX_HISTORY_CHARS    = 6_000
+MAX_HISTORY_CHARS = 6_000
 SYSTEM_PROMPT_CACHED = SYSTEM_PROMPT
 
 _gemini_client = None
@@ -65,7 +69,6 @@ def _format_history(messages) -> str:
     for msg in messages:
         role = "Kemora" if msg.is_outbound else "Client"
         body = msg.body or ""
-        # Retirer les blocs LEAD_DATA de l'historique (jamais visibles dans le contexte)
         if LEAD_DATA_MARKER in body:
             body = body[:body.index(LEAD_DATA_MARKER)].strip()
         if len(body) > 400:
@@ -92,15 +95,16 @@ def _build_prompt(
     from django.utils import timezone as tz
     import datetime
     from .prompt import IDF_DEPARTMENTS
+
     parts = []
 
-    # ── Date actuelle ─────────────────────────────────────────────────────────
-    now          = tz.localtime(tz.now())
-    jours        = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
-    mois         = ["janvier", "février", "mars", "avril", "mai", "juin",
-                    "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
-    demain       = now + datetime.timedelta(days=1)
+    now = tz.localtime(tz.now())
+    jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+    mois = ["janvier", "février", "mars", "avril", "mai", "juin",
+            "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+    demain = now + datetime.timedelta(days=1)
     apres_demain = now + datetime.timedelta(days=2)
+
     parts.append(
         f"[DATE_ACTUELLE: {jours[now.weekday()]} {now.day} {mois[now.month-1]} {now.year} | "
         f"DEMAIN: {jours[demain.weekday()]} {demain.day} {mois[demain.month-1]} {demain.year} | "
@@ -108,7 +112,6 @@ def _build_prompt(
         f"Utilise ces dates pour résoudre 'demain', 'après-demain', etc. Toujours demander confirmation.]"
     )
 
-    # ── Contexte CRM complet ──────────────────────────────────────────────────
     if lead:
         crm = ["[CRM: CLIENT CONNU — utilise ces données, ne les redemande pas :"]
         crm.append(f"  Prénom      : {lead.first_name}")
@@ -116,27 +119,23 @@ def _build_prompt(
         crm.append(f"  Téléphone   : {lead.phone}")
         crm.append(f"  Email       : {lead.email or '(non renseigné)'}")
 
-        # Statut lead
         if hasattr(lead, "status") and lead.status:
             crm.append(f"  Statut lead : {lead.status.label} ({lead.status.code})")
 
-        # Statut dossier
-        if lead.statut_dossier:
+        if getattr(lead, "statut_dossier", None):
             crm.append(f"  Statut dossier : {lead.statut_dossier.label}")
-        if lead.statut_dossier_interne:
+        if getattr(lead, "statut_dossier_interne", None):
             crm.append(f"  Statut dossier interne : {lead.statut_dossier_interne.label}")
 
-        # RDV existant
-        if lead.appointment_date:
-            apt     = tz.localtime(lead.appointment_date)
+        if getattr(lead, "appointment_date", None):
+            apt = tz.localtime(lead.appointment_date)
             apt_str = f"{jours[apt.weekday()]} {apt.day} {mois[apt.month-1]} {apt.year} à {apt.strftime('%H:%M')}"
             apt_type = getattr(lead, "appointment_type", "presentiel") or "presentiel"
             crm.append(f"  RDV actuel  : {apt_str} ({apt_type})")
         else:
             crm.append("  RDV actuel  : (aucun planifié)")
 
-        # Localisation — détermine le type de RDV
-        dept = (lead.department_code or "").strip()
+        dept = (getattr(lead, "department_code", "") or "").strip()
         if dept:
             if dept in IDF_DEPARTMENTS:
                 crm.append(f"  Département : {dept} → Île-de-France → RDV PRÉSENTIEL GRATUIT")
@@ -147,7 +146,6 @@ def _build_prompt(
         else:
             crm.append("  Département : (non renseigné — demander la localisation)")
 
-        # Données dossier client enrichies
         try:
             client = lead.form_data
             if client:
@@ -158,7 +156,6 @@ def _build_prompt(
                 if client.ville or client.adresse:
                     loc = ", ".join(filter(None, [client.adresse, client.code_postal, client.ville]))
                     crm.append(f"  Adresse      : {loc}")
-                    # Détection IDF par code postal si pas de dept
                     if not dept and client.code_postal:
                         cp_dept = client.code_postal[:2]
                         if cp_dept in IDF_DEPARTMENTS:
@@ -170,7 +167,11 @@ def _build_prompt(
                 if client.situation_pro:
                     crm.append(f"  Situation pro : {client.situation_pro}")
                 if client.a_un_visa is not None:
-                    visa_info = f"Oui ({client.type_visa})" if client.a_un_visa and client.type_visa else ("Oui" if client.a_un_visa else "Non")
+                    visa_info = (
+                        f"Oui ({client.type_visa})"
+                        if client.a_un_visa and client.type_visa
+                        else ("Oui" if client.a_un_visa else "Non")
+                    )
                     crm.append(f"  Visa         : {visa_info}")
                 if client.a_deja_eu_oqtf:
                     crm.append("  OQTF passée  : Oui")
@@ -197,14 +198,12 @@ def _build_prompt(
     else:
         parts.append("[CRM: client inconnu — collecte toutes les informations, en commençant par la localisation]")
 
-    # ── Numéro WhatsApp ───────────────────────────────────────────────────────
     if sender_phone:
         parts.append(
             f"[SENDER_PHONE: {sender_phone} — numéro WhatsApp de la personne. "
             f"Mentionne-le lors de la confirmation du téléphone si non connu du CRM.]"
         )
 
-    # ── État de la conversation ───────────────────────────────────────────────
     if first_contact:
         parts.append(
             "[ÉTAT: PREMIER CONTACT — présente-toi brièvement en tant que Kemora "
@@ -231,7 +230,7 @@ def _extract_lead_data(text: str) -> Optional[dict]:
         return None
     try:
         start = text.index(LEAD_DATA_MARKER) + len(LEAD_DATA_MARKER)
-        end   = text.index(LEAD_DATA_END, start)
+        end = text.index(LEAD_DATA_END, start)
         return json.loads(text[start:end].strip())
     except (ValueError, json.JSONDecodeError) as exc:
         logger.warning("Extraction LEAD_DATA échouée : %s", exc)
@@ -243,7 +242,7 @@ def _strip_lead_marker(text: str) -> str:
         return text
     try:
         start = text.index(LEAD_DATA_MARKER)
-        end   = text.index(LEAD_DATA_END, start) + len(LEAD_DATA_END)
+        end = text.index(LEAD_DATA_END, start) + len(LEAD_DATA_END)
         return (text[:start] + text[end:]).strip()
     except ValueError:
         return text
@@ -252,14 +251,10 @@ def _strip_lead_marker(text: str) -> str:
 # ─── Validation lead data ─────────────────────────────────────────────────────
 
 def _validate_lead_data(data: dict, sender_phone: str) -> Optional[str]:
-    """
-    Valide les champs du bloc LEAD_DATA.
-    Retourne un message d'erreur si invalide, None si tout est OK.
-    """
-    first_name       = (data.get("first_name") or "").strip()
-    last_name        = (data.get("last_name") or "").strip()
+    first_name = (data.get("first_name") or "").strip()
+    last_name = (data.get("last_name") or "").strip()
     appointment_date = (data.get("appointment_date") or "").strip()
-    phone            = (data.get("phone") or "").strip()
+    phone = (data.get("phone") or "").strip()
 
     if not first_name:
         return "first_name manquant"
@@ -278,30 +273,15 @@ def _validate_lead_data(data: dict, sender_phone: str) -> Optional[str]:
 # ─── Dispatch création lead ───────────────────────────────────────────────────
 
 def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
-    """
-    Crée ou met à jour le lead.
-
-    Stratégie :
-    - Tente d'abord Django-Q2 (async) si disponible.
-    - Si Django-Q2 indisponible → fallback synchrone immédiat.
-    - Retourne le résultat de la création (dict avec status/lead_id/etc.)
-      en mode synchrone, ou {"status": "queued"} en mode async.
-
-    Important : en mode async, la confirmation visible au client
-    est déjà incluse dans le message Kemora (généré par le LLM).
-    En mode sync, on peut vérifier le résultat mais la réponse est
-    déjà construite — on log seulement.
-    """
-    # Validation préalable
     error = _validate_lead_data(data, sender_phone)
     if error:
         logger.warning("Dispatch lead ignoré — %s | data=%s", error, data)
         return {"status": "error", "error": error}
 
-    first_name       = (data.get("first_name") or "").strip()
-    last_name        = (data.get("last_name") or "").strip()
-    phone            = (data.get("phone") or "").strip() or sender_phone
-    email            = (data.get("email") or "").strip() or None
+    first_name = (data.get("first_name") or "").strip()
+    last_name = (data.get("last_name") or "").strip()
+    phone = (data.get("phone") or "").strip() or sender_phone
+    email = (data.get("email") or "").strip() or None
     appointment_date = (data.get("appointment_date") or "").strip()
     appointment_type = (data.get("appointment_type") or "presentiel").strip()
     if appointment_type not in ("presentiel", "visio"):
@@ -319,7 +299,6 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         first_name, last_name, phone, appointment_date, email or "—",
     )
 
-    # ── Tentative async via Django-Q2 ─────────────────────────────────────────
     use_async = getattr(settings, "KEMORA_LEAD_ASYNC", False)
 
     if use_async:
@@ -351,7 +330,6 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         except Exception as exc:
             logger.warning("Django-Q2 erreur — fallback synchrone : %s", exc)
 
-    # ── Fallback synchrone (défaut) ───────────────────────────────────────────
     from api.whatsapp.lead_service import create_lead_from_kemora
     result = create_lead_from_kemora(
         first_name=first_name,
@@ -370,7 +348,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
     return result
 
 
-# ─── Point d'entrée principal ─────────────────────────────────────────────────
+# ─── Point d'entrée principal du moteur ───────────────────────────────────────
 
 def generate_agent_reply(
     incoming_message: str,
@@ -378,18 +356,9 @@ def generate_agent_reply(
     sender_phone: Optional[str] = None,
     first_contact: bool = True,
 ) -> Optional[Tuple[str, Optional[dict]]]:
-    """
-    Génère la réponse de Kemora pour une conversation donnée.
-    Chaque appel est totalement indépendant (stateless).
-
-    Retourne (reply_text, lead_result) où :
-      - reply_text  : le texte à envoyer au client (sans bloc LEAD_DATA)
-      - lead_result : dict avec status/lead_id si un lead a été créé/mis à jour, sinon None
-    """
-    history_text    = ""
+    history_text = ""
     lead_first_name = None
 
-    # ── Historique BDD ────────────────────────────────────────────────────────
     try:
         if lead:
             lead_first_name = lead.first_name
@@ -415,7 +384,6 @@ def generate_agent_reply(
     except Exception as exc:
         logger.warning("Chargement historique échoué : %s", exc)
 
-    # ── Appel Gemini ──────────────────────────────────────────────────────────
     try:
         prompt = _build_prompt(
             incoming_message=incoming_message,
@@ -437,15 +405,10 @@ def generate_agent_reply(
             logger.warning("Gemini — réponse vide")
             return None
 
-        # ── Extraction + dispatch lead ────────────────────────────────────────
-        lead_data   = _extract_lead_data(full_reply)
+        lead_data = _extract_lead_data(full_reply)
         lead_result = None
 
         if lead_data:
-            # Nouveau client → création complète
-            # Client connu avec nouveau RDV → mise à jour
-            # Dans les deux cas, on passe par _dispatch_lead_creation
-            # qui gère la logique created/updated dans lead_service
             lead_result = _dispatch_lead_creation(lead_data, sender_phone or "")
 
             if lead_result.get("status") == "error":
@@ -476,3 +439,115 @@ def generate_agent_reply(
     except Exception as exc:
         logger.exception("Erreur appel Gemini : %s", exc)
         return None
+
+
+# ─── Wrapper appelé par Django-Q2 ─────────────────────────────────────────────
+
+def trigger_agent_response(
+    incoming_body: str,
+    sender_phone: str,
+    lead_id: Optional[int] = None,
+    wa_message_id: str = "",
+):
+    """
+    Point d'entrée attendu par Django-Q2 :
+    "api.whatsapp.agent.handler.trigger_agent_response"
+
+    Cette fonction :
+      - charge le lead si lead_id existe,
+      - génère la réponse Kemora,
+      - envoie le message via Meta,
+      - sauvegarde le message sortant en base.
+
+    wa_message_id est conservé pour compatibilité, même s'il n'est pas encore utilisé ici.
+    """
+    logger.info(
+        "trigger_agent_response START | phone=%s | lead_id=%s | wa_message_id=%s",
+        sender_phone,
+        lead_id,
+        wa_message_id,
+    )
+
+    lead = None
+    if lead_id:
+        try:
+            lead = Lead.objects.get(id=lead_id)
+        except Lead.DoesNotExist:
+            logger.warning("Lead introuvable dans trigger_agent_response | lead_id=%s", lead_id)
+
+    try:
+        previous_outbound_exists = WhatsAppMessage.objects.filter(
+            sender_phone=sender_phone,
+            is_outbound=True,
+        ).exists()
+
+        first_contact = not previous_outbound_exists
+
+        result = generate_agent_reply(
+            incoming_message=incoming_body,
+            lead=lead,
+            sender_phone=sender_phone,
+            first_contact=first_contact,
+        )
+
+        if not result:
+            logger.warning("Kemora n'a généré aucune réponse | phone=%s", sender_phone)
+            return None
+
+        reply_text, lead_result = result
+
+        if not reply_text or not reply_text.strip():
+            logger.warning("Kemora a généré une réponse vide | phone=%s", sender_phone)
+            return None
+
+        if not lead and lead_result and lead_result.get("lead_id"):
+            try:
+                lead = Lead.objects.get(id=lead_result["lead_id"])
+            except Lead.DoesNotExist:
+                logger.warning(
+                    "Lead créé/maj annoncé mais introuvable après génération | lead_id=%s",
+                    lead_result.get("lead_id"),
+                )
+
+        to_phone = normalize_phone_for_meta(sender_phone)
+        meta_response = send_whatsapp_message(to_phone, reply_text)
+
+        outbound_wa_id = (
+            meta_response.get("messages", [{}])[0].get("id")
+            or f"out_{to_phone}"
+        )
+
+        with transaction.atomic():
+            saved = WhatsAppMessage.objects.create(
+                wa_id=outbound_wa_id,
+                lead=lead,
+                sender_phone=to_phone,
+                body=reply_text,
+                is_outbound=True,
+                is_read=True,
+                delivery_status="sent",
+            )
+
+        logger.info(
+            "trigger_agent_response SUCCESS | db_id=%s | wa_id=%s | phone=%s | lead_id=%s",
+            saved.id,
+            outbound_wa_id,
+            to_phone,
+            getattr(lead, "id", None),
+        )
+
+        return {
+            "status": "sent",
+            "message_id": saved.id,
+            "wa_id": outbound_wa_id,
+            "lead_id": getattr(lead, "id", None),
+        }
+
+    except Exception as exc:
+        logger.exception(
+            "trigger_agent_response ERROR | phone=%s | lead_id=%s | error=%s",
+            sender_phone,
+            lead_id,
+            exc,
+        )
+        raise
