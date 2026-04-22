@@ -308,6 +308,15 @@ def _validate_lead_data(data: dict, sender_phone: str) -> Optional[str]:
 # ─── Dispatch création lead ───────────────────────────────────────────────────
 
 def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
+    """
+    Crée ou met à jour le lead.
+
+    Stratégie :
+    - Tente d'abord Django-Q2 (async) si disponible.
+    - Si Django-Q2 indisponible → fallback synchrone immédiat.
+    - Retourne le résultat de la création (dict avec status/lead_id/etc.)
+      en mode synchrone, ou {"status": "queued"} en mode async.
+    """
     error = _validate_lead_data(data, sender_phone)
     if error:
         logger.warning("Dispatch lead ignoré — %s | data=%s", error, data)
@@ -318,10 +327,23 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
     phone = (data.get("phone") or "").strip() or sender_phone
     email = (data.get("email") or "").strip() or None
     appointment_date = (data.get("appointment_date") or "").strip()
-    appointment_type = (data.get("appointment_type") or "presentiel").strip()
 
-    if appointment_type not in ("presentiel", "visio"):
-        appointment_type = "presentiel"
+    raw_appointment_type = (data.get("appointment_type") or "").strip().lower()
+
+    APPOINTMENT_TYPE_MAP = {
+        "presentiel": "PRESENTIEL",
+        "visio": "VISIO_CONFERENCE",
+    }
+
+    appointment_type = APPOINTMENT_TYPE_MAP.get(raw_appointment_type)
+
+    if not appointment_type:
+        logger.warning(
+            "Dispatch lead ignoré — appointment_type invalide | raw=%s | data=%s",
+            raw_appointment_type,
+            data,
+        )
+        return {"status": "error", "error": "appointment_type invalide"}
 
     if not phone:
         logger.warning(
@@ -331,11 +353,12 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         return {"status": "error", "error": "phone manquant"}
 
     logger.info(
-        "Dispatch lead — %s %s | phone=%s | rdv=%s | email=%s",
+        "Dispatch lead — %s %s | phone=%s | rdv=%s | type=%s | email=%s",
         first_name,
         last_name,
         phone,
         appointment_date,
+        appointment_type,
         email or "—",
     )
 
@@ -344,7 +367,6 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
     if use_async:
         try:
             from django_q.tasks import async_task
-
             async_task(
                 "api.whatsapp.lead_service.create_lead_async",
                 first_name=first_name,
@@ -361,22 +383,20 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
                 },
             )
             logger.info(
-                "Lead dispatché via Django-Q2 — %s %s rdv=%s",
+                "Lead dispatché via Django-Q2 — %s %s rdv=%s type=%s",
                 first_name,
                 last_name,
                 appointment_date,
+                appointment_type,
             )
             return {"status": "queued"}
 
         except ImportError:
-            logger.warning(
-                "Django-Q2 indisponible malgré KEMORA_LEAD_ASYNC=True — fallback synchrone"
-            )
+            logger.warning("Django-Q2 indisponible malgré KEMORA_LEAD_ASYNC=True — fallback synchrone")
         except Exception as exc:
             logger.warning("Django-Q2 erreur — fallback synchrone : %s", exc)
 
     from api.whatsapp.lead_service import create_lead_from_kemora
-
     result = create_lead_from_kemora(
         first_name=first_name,
         last_name=last_name,
