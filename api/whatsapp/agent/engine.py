@@ -100,35 +100,112 @@ def _build_prompt(
     date_str     = f"{jours[now.weekday()]} {now.day} {mois[now.month - 1]} {now.year}"
     demain       = now + __import__("datetime").timedelta(days=1)
     demain_str   = f"{jours[demain.weekday()]} {demain.day} {mois[demain.month - 1]} {demain.year}"
+    heure_str = now.strftime("%H:%M")
     parts.append(
-        f"[DATE_ACTUELLE: {date_str} | DEMAIN: {demain_str} — "
-        f"utilise ces dates pour résoudre 'demain', 'après-demain', etc. "
+        f"[DATE_ACTUELLE: {date_str} {heure_str} | DEMAIN: {demain_str} — "
+        f"Utilise ces dates pour résoudre 'demain', 'après-demain', etc. "
+        f"RÈGLE CRITIQUE : ne propose JAMAIS un rendez-vous à une date ou heure DÉJÀ PASSÉE. "
+        f"La date ET l'heure du RDV doivent être strictement FUTURES par rapport à {date_str} {heure_str}. "
         f"Toujours demander confirmation avant de générer le bloc.]"
     )
 
-    # ── Données CRM ───────────────────────────────────────────────────────────
-    # On injecte TOUTES les infos disponibles du lead pour éviter de les redemander
+    # ── Données CRM enrichies ─────────────────────────────────────────────────
+    from .prompt import IDF_DEPARTMENTS
+    import datetime as _dt
+
     if lead:
-        crm_lines = ["[CRM: CLIENT CONNU — informations déjà enregistrées :"]
-        crm_lines.append(f"  prénom     = {lead.first_name}")
-        crm_lines.append(f"  nom        = {lead.last_name}")
-        crm_lines.append(f"  téléphone  = {lead.phone}")
-        crm_lines.append(f"  email      = {lead.email or '(non renseigné)'}")
+        crm = ["[CRM: CLIENT CONNU — utilise ces données, ne les redemande pas :"]
+        crm.append(f"  Prénom      : {lead.first_name}")
+        crm.append(f"  Nom         : {lead.last_name}")
+        crm.append(f"  Téléphone   : {lead.phone}")
+        crm.append(f"  Email       : {lead.email or '(non renseigné)'}")
+
+        if hasattr(lead, "status") and lead.status:
+            crm.append(f"  Statut lead : {lead.status.label} ({lead.status.code})")
+        if getattr(lead, "statut_dossier", None):
+            crm.append(f"  Statut dossier : {lead.statut_dossier.label}")
+        if getattr(lead, "statut_dossier_interne", None):
+            crm.append(f"  Statut dossier interne : {lead.statut_dossier_interne.label}")
+
         if lead.appointment_date:
-            apt = tz.localtime(lead.appointment_date)
+            apt     = tz.localtime(lead.appointment_date)
             apt_str = f"{jours[apt.weekday()]} {apt.day} {mois[apt.month - 1]} {apt.year} à {apt.strftime('%H:%M')}"
-            crm_lines.append(f"  RDV actuel = {apt_str}")
+            apt_type = getattr(lead, "appointment_type", "presentiel") or "presentiel"
+            crm.append(f"  RDV actuel  : {apt_str} ({apt_type})")
         else:
-            crm_lines.append("  RDV actuel = (aucun)")
-        crm_lines.append(
+            crm.append("  RDV actuel  : (aucun planifié)")
+
+        # Localisation → détermine le type de RDV
+        dept = (getattr(lead, "department_code", "") or "").strip()
+        if dept:
+            if dept in IDF_DEPARTMENTS:
+                crm.append(f"  Département : {dept} → Île-de-France → RDV PRÉSENTIEL GRATUIT")
+                crm.append("  TYPE_RDV    : presentiel")
+            else:
+                crm.append(f"  Département : {dept} → Hors Île-de-France → RDV VISIO 50€")
+                crm.append("  TYPE_RDV    : visio")
+        else:
+            crm.append("  Département : (non renseigné — demander la localisation)")
+
+        # Données dossier client enrichies (form_data)
+        try:
+            client = getattr(lead, "form_data", None)
+            if client:
+                if getattr(client, "nationalite", None):
+                    crm.append(f"  Nationalité  : {client.nationalite}")
+                if getattr(client, "pays", None):
+                    crm.append(f"  Pays origine : {client.pays}")
+                ville  = getattr(client, "ville", None)
+                adresse = getattr(client, "adresse", None)
+                cp     = getattr(client, "code_postal", None)
+                if ville or adresse:
+                    loc = ", ".join(filter(None, [adresse, cp, ville]))
+                    crm.append(f"  Adresse      : {loc}")
+                    if not dept and cp:
+                        cp_dept = str(cp)[:2]
+                        if cp_dept in IDF_DEPARTMENTS:
+                            crm.append("  TYPE_RDV     : presentiel (déduit code postal)")
+                        else:
+                            crm.append("  TYPE_RDV     : visio (déduit code postal)")
+                sit_fam = getattr(client, "situation_familiale", None)
+                if sit_fam:
+                    crm.append(f"  Situation familiale : {sit_fam}")
+                sit_pro = getattr(client, "situation_pro", None)
+                if sit_pro:
+                    crm.append(f"  Situation pro : {sit_pro}")
+                a_visa = getattr(client, "a_un_visa", None)
+                if a_visa is not None:
+                    type_visa = getattr(client, "type_visa", None)
+                    visa_info = f"Oui ({type_visa})" if a_visa and type_visa else ("Oui" if a_visa else "Non")
+                    crm.append(f"  Visa         : {visa_info}")
+                if getattr(client, "a_deja_eu_oqtf", None):
+                    crm.append("  OQTF passée  : Oui")
+                nb_enf = getattr(client, "nombre_enfants", None)
+                if getattr(client, "a_des_enfants", None) and nb_enf:
+                    nb_fr = getattr(client, "nombre_enfants_francais", 0) or 0
+                    crm.append(f"  Enfants      : {nb_enf} dont {nb_fr} français")
+                type_dem = getattr(client, "type_demande", None)
+                if type_dem:
+                    crm.append(f"  Type demande : {type_dem}")
+                date_entree = getattr(client, "date_entree_france", None)
+                if date_entree:
+                    crm.append(f"  Entrée France : {date_entree.strftime('%d/%m/%Y')}")
+                remarques = getattr(client, "remarques", None)
+                if remarques:
+                    r = remarques[:200] + "…" if len(remarques) > 200 else remarques
+                    crm.append(f"  Remarques juriste : {r}")
+        except Exception:
+            pass
+
+        crm.append(
             "→ NE REDEMANDE PAS ces informations. "
-            "Utilise-les directement dans le bloc LEAD_DATA si un RDV est pris.]"
+            "Utilise-les directement dans tes réponses et dans le bloc LEAD_DATA.]"
         )
-        parts.append("\n".join(crm_lines))
+        parts.append("\n".join(crm))
     elif lead_first_name:
         parts.append(f"[CRM: client partiellement connu, prénom = {lead_first_name}]")
     else:
-        parts.append("[CRM: client inconnu, non enregistré — collecte toutes les informations]")
+        parts.append("[CRM: client inconnu — collecte toutes les informations, en commençant par la localisation]")
 
     # ── Numéro WhatsApp ───────────────────────────────────────────────────────
     if sender_phone:
@@ -140,8 +217,10 @@ def _build_prompt(
     # ── État de la conversation ───────────────────────────────────────────────
     if first_contact:
         parts.append(
-            "[ÉTAT: PREMIER CONTACT — présente-toi brièvement en tant que Kemora "
-            "du cabinet Papiers Express, puis demande comment aider.]"
+            "[ÉTAT: PREMIER CONTACT — c'est le premier message de cette personne. "
+            "Répondez directement à sa question ou demandez simplement comment vous pouvez l'aider. "
+            "NE PAS vous présenter par votre nom. NE PAS dire 'Je suis Kemora'. "
+            "Un 'Bonjour 😊' suffit si besoin d'une accroche. Restez naturel.]"
         )
     else:
         parts.append(
@@ -200,6 +279,25 @@ def _validate_lead_data(data: dict, sender_phone: str) -> Optional[str]:
         return "last_name manquant"
     if not appointment_date:
         return "appointment_date manquante"
+
+    # ── Validation date non passée ────────────────────────────────────────────
+    try:
+        from django.utils import timezone as tz
+        from django.utils.dateparse import parse_datetime
+        parsed = parse_datetime(appointment_date)
+        if parsed is not None:
+            now = tz.now()
+            if parsed.tzinfo is None:
+                import datetime
+                parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+            if parsed <= now:
+                logger.warning(
+                    "LEAD_DATA rejeté — date passée : %s (now=%s)", appointment_date, now
+                )
+                return f"appointment_date dans le passé ({appointment_date})"
+    except Exception as exc:
+        logger.warning("Validation date passée échouée (non bloquant) : %s", exc)
+
     if not phone:
         logger.warning(
             "LEAD_DATA sans phone explicite — sender_phone=%s sera utilisé comme fallback",
@@ -236,6 +334,9 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
     phone            = (data.get("phone") or "").strip() or sender_phone
     email            = (data.get("email") or "").strip() or None
     appointment_date = (data.get("appointment_date") or "").strip()
+    appointment_type = (data.get("appointment_type") or "presentiel").strip()
+    if appointment_type not in ("presentiel", "visio"):
+        appointment_type = "presentiel"
 
     if not phone:
         logger.warning(
@@ -263,6 +364,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
                 email=email,
                 sender_phone=sender_phone,
                 appointment_date=appointment_date,
+                appointment_type=appointment_type,
                 q_options={
                     "task_name": f"kemora_lead_{sender_phone}",
                     "timeout": 60,
@@ -289,6 +391,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         email=email,
         sender_phone=sender_phone,
         appointment_date=appointment_date,
+        appointment_type=appointment_type,
     )
 
     logger.info(
