@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 # Délai debounce en secondes
 AGENT_DEBOUNCE_SECONDS = getattr(settings, "KEMORA_DEBOUNCE_SECONDS", 4)
 
+# Types de messages qui ne doivent pas déclencher l'agent ni être sauvegardés
+IGNORED_MESSAGE_TYPES = {"reaction", "unsupported"}
+
 
 def _no_cache(response):
     response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -73,30 +76,38 @@ def _process_incoming_message(msg: dict):
     text_body = _extract_message_body(msg)
 
     logger.info(
-        "Processing incoming WhatsApp message | wa_id=%s | from=%s | type=%s | body=%s",
+        "Traitement du message WhatsApp entrant | wa_id=%s | from=%s | type=%s | body=%s",
         wa_id, wa_phone, msg_type, text_body,
     )
 
+    # ── Ignorer les types qui ne méritent pas de réponse IA ──────────────────
+    if msg_type in IGNORED_MESSAGE_TYPES:
+        logger.info(
+            "Message ignoré (type non traitable) | wa_id=%s | type=%s",
+            wa_id, msg_type,
+        )
+        return
+
     if not wa_id or not wa_phone:
         logger.warning(
-            "Incoming message ignored | missing wa_id or wa_phone | wa_id=%s | wa_phone=%s",
+            "Message entrant ignoré | wa_id ou wa_phone manquant | wa_id=%s | wa_phone=%s",
             wa_id, wa_phone,
         )
         return
 
     # Déduplication
     if WhatsAppMessage.objects.filter(wa_id=wa_id).exists():
-        logger.info("Incoming message ignored | duplicate wa_id=%s", wa_id)
+        logger.info("Message entrant ignoré | wa_id dupliqué=%s", wa_id)
         return
 
     try:
         lead = get_lead_by_phone(wa_phone)
     except Exception as exc:
-        logger.exception("Lead lookup failed | wa_phone=%s | error=%s", wa_phone, exc)
+        logger.exception("Échec recherche lead | wa_phone=%s | error=%s", wa_phone, exc)
         lead = None
 
     logger.info(
-        "Lead lookup result | wa_phone=%s | lead_id=%s | lead_name=%s",
+        "Résultat de la recherche de prospect | wa_phone=%s | lead_id=%s | lead_name=%s",
         wa_phone,
         getattr(lead, "id", None),
         f"{lead.first_name} {lead.last_name}" if lead else "inconnu",
@@ -113,12 +124,12 @@ def _process_incoming_message(msg: dict):
             delivery_status="delivered",
         )
         logger.info(
-            "Incoming message saved | db_id=%s | wa_id=%s | lead_id=%s",
+            "Message entrant enregistré | db_id=%s | wa_id=%s | lead_id=%s",
             saved_message.id, wa_id, getattr(lead, "id", None),
         )
     except Exception as exc:
         logger.exception(
-            "Failed to save incoming WhatsApp message | wa_id=%s | error=%s", wa_id, exc,
+            "Échec sauvegarde message WhatsApp entrant | wa_id=%s | error=%s", wa_id, exc,
         )
         return
 
@@ -130,19 +141,17 @@ def _process_incoming_message(msg: dict):
             lead.status = status_confirme
             lead.save(update_fields=["status"])
             logger.info(
-                "Lead status updated from WhatsApp confirmation | lead_id=%s | %s → %s",
+                "Statut lead mis à jour via confirmation WhatsApp | lead_id=%s | %s → %s",
                 lead.id, old_status, status_confirme.code,
             )
         except LeadStatus.DoesNotExist:
-            logger.error("LeadStatus RDV_CONFIRME not found")
+            logger.error("LeadStatus RDV_CONFIRME introuvable")
         except Exception as exc:
             logger.exception(
-                "Failed to update lead status | lead_id=%s | error=%s", lead.id, exc,
+                "Échec mise à jour statut lead | lead_id=%s | error=%s", lead.id, exc,
             )
 
-    # ── VÉRIFICATION agent_enabled AVANT de dispatcher ──────────────────────────
-    # C'est ici que le toggle "désactiver l'IA" prend tout son effet.
-    # On vérifie DANS LE WEBHOOK, pas dans le worker, pour éviter tout appel inutile.
+    # ── Vérification agent_enabled AVANT de dispatcher ───────────────────────
     agent_active = WhatsAppConversationSettings.is_agent_enabled(lead=lead, phone=wa_phone)
 
     if not agent_active:
@@ -151,9 +160,9 @@ def _process_incoming_message(msg: dict):
             wa_phone,
             getattr(lead, "id", None),
         )
-        return  # On s'arrête ici : message sauvegardé mais pas de réponse IA
+        return
 
-    # ── DEBOUNCE ──────────────────────────────────────────────────────────────────
+    # ── Debounce + dispatch ───────────────────────────────────────────────────
     _schedule_debounced_agent(
         text_body=text_body,
         sender_phone=wa_phone,
@@ -187,7 +196,7 @@ def _schedule_debounced_agent(
     cache.set(cache_key, token, timeout=60)
 
     logger.info(
-        "Debounce token set | phone=%s | token=%s | delay=%ds",
+        "Jeton de délai défini | téléphone=%s | jeton=%s | délai=%ds",
         sender_phone, token, AGENT_DEBOUNCE_SECONDS,
     )
 
@@ -227,7 +236,7 @@ def _dispatch_agent_q2(
             },
         )
         logger.info(
-            "Agent Kemora dispatché via Q2 | task_id=%s | phone=%s | lead_id=%s | delay=%ds",
+            "Agent Kemora dépêché via Q2 | task_id=%s | phone=%s | lead_id=%s | delay=%ds",
             task_id, sender_phone, lead_id, AGENT_DEBOUNCE_SECONDS,
         )
     except Exception as exc:
@@ -266,11 +275,11 @@ def _process_status_update(st: dict):
         if status_value == "read":
             msg.is_read = True
         msg.save(update_fields=["delivery_status", "is_read"])
-        logger.info("Status update saved | wa_id=%s | status=%s", wa_id, status_value)
+        logger.info("Statut sauvegardé | wa_id=%s | status=%s", wa_id, status_value)
     except WhatsAppMessage.DoesNotExist:
-        logger.warning("Status update ignored | local message not found for wa_id=%s", wa_id)
+        logger.warning("Statut ignoré | message local introuvable pour wa_id=%s", wa_id)
     except Exception as exc:
-        logger.exception("Failed to save status update | wa_id=%s | error=%s", wa_id, exc)
+        logger.exception("Échec sauvegarde statut | wa_id=%s | error=%s", wa_id, exc)
 
 
 @never_cache
@@ -284,10 +293,10 @@ def whatsapp_webhook(request):
         challenge = request.GET.get("hub.challenge")
 
         if mode == "subscribe" and token == verify_token:
-            logger.info("WhatsApp webhook verified")
+            logger.info("WhatsApp webhook vérifié")
             return HttpResponse(challenge, status=200)
 
-        logger.warning("WhatsApp webhook verification failed | mode=%s | token=%s", mode, token)
+        logger.warning("Échec vérification webhook WhatsApp | mode=%s | token=%s", mode, token)
         return HttpResponse("Forbidden", status=403)
 
     try:
@@ -386,7 +395,7 @@ def conversation_list(request):
     all_conversations = sorted(list(known) + unknown, key=get_ts, reverse=True)
 
     logger.info(
-        "Conversation list built | known=%d | unknown=%d | total=%d",
+        "Liste des conversations créée | connues=%d | inconnues=%d | total=%d",
         len(known), len(unknown), len(all_conversations),
     )
 
@@ -438,9 +447,9 @@ def send_message(request):
     try:
         meta_response = send_whatsapp_message(to_phone, body)
     except Exception as exc:
-        logger.exception("Echec envoi WhatsApp via Meta | to=%s | error=%s", to_phone, exc)
+        logger.exception("Échec envoi WhatsApp via Meta | to=%s | error=%s", to_phone, exc)
         return Response(
-            {"detail": "Echec envoi via Meta.", "error": str(exc)},
+            {"detail": "Échec envoi via Meta.", "error": str(exc)},
             status=status.HTTP_502_BAD_GATEWAY,
         )
 
@@ -502,7 +511,7 @@ def agent_settings_lead(request, lead_id: int):
     conv_settings.save(update_fields=["agent_enabled", "updated_at"])
 
     logger.info(
-        "Agent toggle | lead_id=%s | agent_enabled=%s",
+        "Toggle agent | lead_id=%s | agent_enabled=%s",
         lead_id, conv_settings.agent_enabled,
     )
 
@@ -525,7 +534,7 @@ def agent_settings_unknown(request, phone: str):
     conv_settings.save(update_fields=["agent_enabled", "updated_at"])
 
     logger.info(
-        "Agent toggle (unknown) | phone=%s | agent_enabled=%s",
+        "Toggle agent (inconnu) | phone=%s | agent_enabled=%s",
         phone, conv_settings.agent_enabled,
     )
 
