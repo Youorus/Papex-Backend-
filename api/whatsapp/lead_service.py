@@ -154,9 +154,9 @@ def _migrate_whatsapp_context(sender_phone: str, lead) -> None:
         pass
 
 
-def _update_existing_lead_appointment(lead, parsed_date) -> None:
+def _update_existing_lead_appointment(lead, parsed_date, appointment_type: str) -> None:
     """
-    Met à jour la date de RDV d'un lead existant.
+    Met à jour la date ET le type de RDV d'un lead existant.
     Envoie les confirmations SMS + email directement
     (l'AutomationEngine n'est pas branché sur APPOINTMENT_UPDATED).
     """
@@ -165,8 +165,11 @@ def _update_existing_lead_appointment(lead, parsed_date) -> None:
     from api.utils.email.leads.tasks import send_appointment_confirmation_task
 
     old_date = lead.appointment_date
+    old_type = getattr(lead, "appointment_type", None)
+
     lead.appointment_date = parsed_date
-    lead.save(update_fields=["appointment_date"])
+    lead.appointment_type = appointment_type
+    lead.save(update_fields=["appointment_date", "appointment_type"])
 
     LeadEvent.log(
         lead=lead,
@@ -177,6 +180,8 @@ def _update_existing_lead_appointment(lead, parsed_date) -> None:
             "channel": "whatsapp",
             "old_appointment_date": old_date.isoformat() if old_date else None,
             "new_appointment_date": parsed_date.isoformat(),
+            "old_appointment_type": old_type,
+            "new_appointment_type": appointment_type,
         },
     )
 
@@ -196,10 +201,12 @@ def _update_existing_lead_appointment(lead, parsed_date) -> None:
             logger.exception("Erreur envoi email confirmation (update RDV) lead #%d : %s", lead.pk, exc)
 
     logger.info(
-        "Lead #%d — RDV mis à jour : %s → %s",
+        "Lead #%d — RDV mis à jour : %s → %s | type : %s → %s",
         lead.pk,
         old_date,
         parsed_date.isoformat(),
+        old_type,
+        appointment_type,
     )
 
 
@@ -235,7 +242,20 @@ def create_lead_from_kemora(
         effective_phone  = _normalize_phone(phone, fallback=sender_phone)
         effective_email  = (email or "").strip() or None
         sender_phone     = "".join(c for c in (sender_phone or "") if c.isdigit())
-        appointment_type = appointment_type if appointment_type in ("presentiel", "visio") else "presentiel"
+        # Convertit les valeurs courtes de Kemora ("presentiel", "visio")
+        # vers les constantes du modèle Lead ("PRESENTIEL", "VISIO_CONFERENCE").
+        APPOINTMENT_TYPE_MAP = {
+            "presentiel":       "PRESENTIEL",
+            "presentiel":       "PRESENTIEL",
+            "visio":            "VISIO_CONFERENCE",
+            "visio_conference": "VISIO_CONFERENCE",
+            "VISIO_CONFERENCE": "VISIO_CONFERENCE",
+            "PRESENTIEL":       "PRESENTIEL",
+            "telephone":        "TELEPHONE",
+            "TELEPHONE":        "TELEPHONE",
+        }
+        raw_type = (appointment_type or "").strip().lower().replace("-", "_").replace(" ", "_")
+        appointment_type = APPOINTMENT_TYPE_MAP.get(raw_type, "PRESENTIEL")
 
         # ── Validations ───────────────────────────────────────────────────────
         if not first_name or not last_name:
@@ -271,7 +291,7 @@ def create_lead_from_kemora(
                 effective_phone,
             )
             with transaction.atomic():
-                _update_existing_lead_appointment(existing, parsed_date)
+                _update_existing_lead_appointment(existing, parsed_date, appointment_type)
                 _migrate_whatsapp_context(sender_phone, existing)
 
             logger.info(
@@ -284,6 +304,7 @@ def create_lead_from_kemora(
                 "first_name": existing.first_name,
                 "last_name": existing.last_name,
                 "appointment_date": parsed_date,
+                "appointment_type": appointment_type,
             }
 
         # ── Statut par défaut ─────────────────────────────────────────────────
@@ -321,10 +342,11 @@ def create_lead_from_kemora(
             _migrate_whatsapp_context(sender_phone, lead)
 
         logger.info(
-            "Lead créé par Kemora — id=%d %s %s phone=%s rdv=%s email=%s",
+            "Lead créé par Kemora — id=%d %s %s phone=%s rdv=%s type=%s email=%s",
             lead.pk, first_name, last_name,
             effective_phone,
             parsed_date.isoformat(),
+            appointment_type,
             effective_email or "—",
         )
         return {
@@ -333,6 +355,7 @@ def create_lead_from_kemora(
             "first_name": lead.first_name,
             "last_name": lead.last_name,
             "appointment_date": parsed_date,
+            "appointment_type": appointment_type,
         }
 
     except Exception as exc:

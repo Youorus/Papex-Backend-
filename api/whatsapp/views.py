@@ -1,7 +1,9 @@
 import json
 import logging
+import uuid
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Max, Prefetch
 from django.http import HttpResponse
 from django.views.decorators.cache import never_cache
@@ -26,6 +28,9 @@ from .utils import get_lead_by_phone, normalize_phone_for_meta, send_whatsapp_me
 
 logger = logging.getLogger(__name__)
 
+# Délai debounce en secondes
+AGENT_DEBOUNCE_SECONDS = getattr(settings, "KEMORA_DEBOUNCE_SECONDS", 4)
+
 
 def _no_cache(response):
     response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -46,10 +51,8 @@ def _extract_message_body(msg: dict) -> str:
     if msg_type == "interactive":
         interactive = msg.get("interactive", {})
         itype = interactive.get("type")
-
         if itype == "button_reply":
             return interactive.get("button_reply", {}).get("title", "")
-
         if itype == "list_reply":
             return interactive.get("list_reply", {}).get("title", "")
 
@@ -81,7 +84,7 @@ def _process_incoming_message(msg: dict):
         )
         return
 
-    # Déduplication — index unique sur wa_id, requête rapide
+    # Déduplication
     if WhatsAppMessage.objects.filter(wa_id=wa_id).exists():
         logger.info("Incoming message ignored | duplicate wa_id=%s", wa_id)
         return
@@ -119,7 +122,7 @@ def _process_incoming_message(msg: dict):
         )
         return
 
-    # Confirmation automatique de RDV sur "oui" / "confirme"
+    # Confirmation automatique de RDV
     if lead and text_body and ("oui" in text_body.lower() or "confirme" in text_body.lower()):
         try:
             status_confirme = LeadStatus.objects.get(code=RDV_CONFIRME)
@@ -134,22 +137,76 @@ def _process_incoming_message(msg: dict):
             logger.error("LeadStatus RDV_CONFIRME not found")
         except Exception as exc:
             logger.exception(
-                "Failed to update lead status from WhatsApp confirmation | lead_id=%s | error=%s",
-                lead.id, exc,
+                "Failed to update lead status | lead_id=%s | error=%s", lead.id, exc,
             )
 
-    # ── CLEF : dispatch agent via Django-Q2, on ne bloque PAS le webhook ────────
-    # Meta exige une réponse HTTP sous 5 secondes.
-    # Gemini prend 5-15 secondes → on délègue à un worker Django-Q2.
-    # Chaque conversation est indépendante (stateless engine) : pas de race condition.
-    _dispatch_agent_q2(text_body=text_body, sender_phone=wa_phone, lead=lead, wa_message_id=wa_id)
+    # ── VÉRIFICATION agent_enabled AVANT de dispatcher ──────────────────────────
+    # C'est ici que le toggle "désactiver l'IA" prend tout son effet.
+    # On vérifie DANS LE WEBHOOK, pas dans le worker, pour éviter tout appel inutile.
+    agent_active = WhatsAppConversationSettings.is_agent_enabled(lead=lead, phone=wa_phone)
+
+    if not agent_active:
+        logger.info(
+            "Agent désactivé pour cette conversation — pas de réponse automatique | phone=%s | lead_id=%s",
+            wa_phone,
+            getattr(lead, "id", None),
+        )
+        return  # On s'arrête ici : message sauvegardé mais pas de réponse IA
+
+    # ── DEBOUNCE ──────────────────────────────────────────────────────────────────
+    _schedule_debounced_agent(
+        text_body=text_body,
+        sender_phone=wa_phone,
+        lead=lead,
+        wa_message_id=wa_id,
+    )
 
 
-def _dispatch_agent_q2(text_body: str, sender_phone: str, lead, wa_message_id: str = "") -> None:
-    """
-    Enfile la tâche Kemora dans Django-Q2 (broker Postgres).
-    wa_message_id est l'ID du message reçu — nécessaire pour le typing indicator.
-    """
+# ─────────────────────────────────────────────────────────────────────────────
+# Debounce : un seul appel Gemini par burst de messages
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _debounce_cache_key(sender_phone: str) -> str:
+    return f"kemora_debounce_{sender_phone}"
+
+
+def _eta_from_now(seconds: int):
+    from django.utils import timezone
+    import datetime
+    return timezone.now() + datetime.timedelta(seconds=seconds)
+
+
+def _schedule_debounced_agent(
+    text_body: str,
+    sender_phone: str,
+    lead,
+    wa_message_id: str,
+) -> None:
+    token = str(uuid.uuid4())
+    cache_key = _debounce_cache_key(sender_phone)
+    cache.set(cache_key, token, timeout=60)
+
+    logger.info(
+        "Debounce token set | phone=%s | token=%s | delay=%ds",
+        sender_phone, token, AGENT_DEBOUNCE_SECONDS,
+    )
+
+    _dispatch_agent_q2(
+        text_body=text_body,
+        sender_phone=sender_phone,
+        lead=lead,
+        wa_message_id=wa_message_id,
+        debounce_token=token,
+    )
+
+
+def _dispatch_agent_q2(
+    text_body: str,
+    sender_phone: str,
+    lead,
+    wa_message_id: str = "",
+    debounce_token: str = "",
+) -> None:
     lead_id = getattr(lead, "id", None)
 
     try:
@@ -160,16 +217,18 @@ def _dispatch_agent_q2(text_body: str, sender_phone: str, lead, wa_message_id: s
             sender_phone=sender_phone,
             lead_id=lead_id,
             wa_message_id=wa_message_id,
+            debounce_token=debounce_token,
             q_options={
                 "task_name": f"kemora_{sender_phone[-8:]}",
                 "timeout":   120,
-                "max_attempts": 2,
+                "max_attempts": 1,
                 "group": "kemora",
+                "eta": _eta_from_now(AGENT_DEBOUNCE_SECONDS),
             },
         )
         logger.info(
-            "Agent Kemora dispatché via Q2 | task_id=%s | phone=%s | lead_id=%s",
-            task_id, sender_phone, lead_id,
+            "Agent Kemora dispatché via Q2 | task_id=%s | phone=%s | lead_id=%s | delay=%ds",
+            task_id, sender_phone, lead_id, AGENT_DEBOUNCE_SECONDS,
         )
     except Exception as exc:
         logger.error(
@@ -183,6 +242,7 @@ def _dispatch_agent_q2(text_body: str, sender_phone: str, lead, wa_message_id: s
                 sender_phone=sender_phone,
                 lead_id=lead_id,
                 wa_message_id=wa_message_id,
+                debounce_token="",
             )
         except Exception as exc2:
             logger.exception(
@@ -195,10 +255,6 @@ def _process_status_update(st: dict):
     status_value = st.get("status")
 
     if not wa_id or not status_value:
-        logger.warning(
-            "Status update ignored | missing wa_id or status | wa_id=%s | status=%s",
-            wa_id, status_value,
-        )
         return
 
     if status_value not in {"sent", "delivered", "read", "failed"}:
@@ -214,9 +270,7 @@ def _process_status_update(st: dict):
     except WhatsAppMessage.DoesNotExist:
         logger.warning("Status update ignored | local message not found for wa_id=%s", wa_id)
     except Exception as exc:
-        logger.exception(
-            "Failed to save status update | wa_id=%s | error=%s", wa_id, exc,
-        )
+        logger.exception("Failed to save status update | wa_id=%s | error=%s", wa_id, exc)
 
 
 @never_cache
@@ -225,25 +279,21 @@ def _process_status_update(st: dict):
 def whatsapp_webhook(request):
     if request.method == "GET":
         verify_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", "papex_secret_2026")
-        mode      = request.query_params.get("hub.mode")
-        token     = request.query_params.get("hub.verify_token")
-        challenge = request.query_params.get("hub.challenge")
+        mode      = request.GET.get("hub.mode")
+        token     = request.GET.get("hub.verify_token")
+        challenge = request.GET.get("hub.challenge")
 
         if mode == "subscribe" and token == verify_token:
-            logger.info("Webhook verification SUCCESS")
-            return _no_cache(HttpResponse(challenge, status=200))
+            logger.info("WhatsApp webhook verified")
+            return HttpResponse(challenge, status=200)
 
-        logger.warning("Webhook verification FAILED")
-        return _no_cache(HttpResponse("Forbidden", status=403))
+        logger.warning("WhatsApp webhook verification failed | mode=%s | token=%s", mode, token)
+        return HttpResponse("Forbidden", status=403)
 
     try:
-        data = request.data
-        logger.info(
-            "Webhook POST | object=%s | entries=%d",
-            data.get("object"), len(data.get("entry", [])),
-        )
+        body = json.loads(request.body)
 
-        for entry in data.get("entry", []):
+        for entry in body.get("entry", []):
             for change in entry.get("changes", []):
                 value    = change.get("value", {})
                 messages = value.get("messages", [])
@@ -255,12 +305,10 @@ def whatsapp_webhook(request):
                 for st in statuses:
                     _process_status_update(st)
 
-        # ✅ Retour immédiat à Meta — l'agent tourne en background
         return _no_cache(HttpResponse("EVENT_RECEIVED", status=200))
 
     except Exception as exc:
         logger.exception("Erreur Webhook WhatsApp : %s", exc)
-        # On retourne 200 quand même pour éviter que Meta retente indéfiniment
         return _no_cache(HttpResponse("EVENT_RECEIVED", status=200))
 
 
@@ -268,13 +316,6 @@ def whatsapp_webhook(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def conversation_list(request):
-    """
-    Construit la liste des conversations (leads connus + inconnus).
-    Optimisé : les inconnus sont traités en une seule passe avec aggregation,
-    évitant les requêtes N+1 de l'ancienne version.
-    """
-    # ── Leads connus ──────────────────────────────────────────────────────────
-    # prefetch_related + select_related évitent les N+1 sur messages et settings
     leads = (
         Lead.objects
         .filter(whatsapp_messages__isnull=False)
@@ -291,9 +332,6 @@ def conversation_list(request):
     )
     known = ConversationPreviewSerializer(leads, many=True).data
 
-    # ── Inconnus — une seule requête groupée ──────────────────────────────────
-    # On récupère tous les messages inconnus en une seule requête
-    # puis on construit les données en Python, sans boucle de requêtes SQL.
     unknown_phones_qs = (
         WhatsAppMessage.objects
         .filter(lead__isnull=True)
@@ -304,20 +342,17 @@ def conversation_list(request):
     unknown_phone_list = [e["sender_phone"] for e in unknown_phones_qs]
 
     if unknown_phone_list:
-        # Tous les messages inconnus en une requête
         all_unknown_messages = (
             WhatsAppMessage.objects
             .filter(lead__isnull=True, sender_phone__in=unknown_phone_list)
             .order_by("sender_phone", "-timestamp")
         )
 
-        # Groupement en mémoire
         from collections import defaultdict
         msgs_by_phone: dict = defaultdict(list)
         for m in all_unknown_messages:
             msgs_by_phone[m.sender_phone].append(m)
 
-        # Settings agent en une requête
         settings_qs = WhatsAppConversationSettings.objects.filter(
             lead__isnull=True, sender_phone__in=unknown_phone_list
         )
@@ -328,7 +363,7 @@ def conversation_list(request):
             phone_msgs = msgs_by_phone.get(phone, [])
             last_msg   = phone_msgs[0] if phone_msgs else None
             unread     = sum(1 for m in phone_msgs if not m.is_outbound and not m.is_read)
-            agent_on   = agent_by_phone.get(phone, True)  # actif par défaut
+            agent_on   = agent_by_phone.get(phone, True)
 
             unknown.append({
                 "id":           None,
@@ -465,6 +500,12 @@ def agent_settings_lead(request, lead_id: int):
 
     conv_settings.agent_enabled = serializer.validated_data["agent_enabled"]
     conv_settings.save(update_fields=["agent_enabled", "updated_at"])
+
+    logger.info(
+        "Agent toggle | lead_id=%s | agent_enabled=%s",
+        lead_id, conv_settings.agent_enabled,
+    )
+
     return Response({"agent_enabled": conv_settings.agent_enabled})
 
 
@@ -482,4 +523,10 @@ def agent_settings_unknown(request, phone: str):
 
     conv_settings.agent_enabled = serializer.validated_data["agent_enabled"]
     conv_settings.save(update_fields=["agent_enabled", "updated_at"])
+
+    logger.info(
+        "Agent toggle (unknown) | phone=%s | agent_enabled=%s",
+        phone, conv_settings.agent_enabled,
+    )
+
     return Response({"agent_enabled": conv_settings.agent_enabled})

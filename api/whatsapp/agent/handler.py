@@ -3,17 +3,6 @@ Moteur conversationnel — Agent Kemora (Papiers Express).
 
 Multi-conversations : chaque appel est stateless.
 Singleton Gemini client pour réutiliser la connexion HTTP.
-
-Stratégie de création de lead :
-  1. L'engine appelle create_lead_from_kemora() de façon SYNCHRONE par défaut.
-     → On obtient immédiatement le résultat (created / updated / error).
-     → Si Django-Q2 est disponible ET configuré, on délègue en async.
-  2. Si la création réussit, on injecte un contexte [[LEAD_RESULT:...]] dans
-     la réponse nettoyée pour que l'engine puisse confirmer à Kemora
-     côté message visible (ou pour debug/logging).
-
-Note : La confirmation visible au client est déjà écrite par Kemora
-dans son message. On ne la regénère pas.
 """
 
 import json
@@ -21,6 +10,7 @@ import logging
 from typing import Optional, Tuple
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 
 from api.leads.models import Lead
@@ -31,7 +21,7 @@ from .prompt import (
     LEAD_DATA_MARKER,
     LEAD_DATA_END,
 )
-from ..models import WhatsAppMessage
+from ..models import WhatsAppMessage, WhatsAppConversationSettings
 from ..utils import (
     normalize_phone_for_meta,
     send_whatsapp_message,
@@ -51,17 +41,13 @@ _gemini_client = None
 
 def _get_gemini_client():
     global _gemini_client
-
     if _gemini_client is None:
         from google import genai
-
         api_key = getattr(settings, "GEMINI_API_KEY", None)
         if not api_key:
             raise ValueError("GEMINI_API_KEY manquante dans les settings Django")
-
         _gemini_client = genai.Client(api_key=api_key)
         logger.info("Client Gemini initialisé (singleton)")
-
     return _gemini_client
 
 
@@ -177,14 +163,12 @@ def _build_prompt(
                 if client.ville or client.adresse:
                     loc = ", ".join(filter(None, [client.adresse, client.code_postal, client.ville]))
                     crm.append(f"  Adresse      : {loc}")
-
                     if not dept and client.code_postal:
                         cp_dept = client.code_postal[:2]
                         if cp_dept in IDF_DEPARTMENTS:
                             crm.append("  TYPE_RDV     : presentiel (déduit du code postal)")
                         else:
                             crm.append("  TYPE_RDV     : visio (déduit du code postal)")
-
                 if client.situation_familiale:
                     crm.append(f"  Situation familiale : {client.situation_familiale}")
                 if client.situation_pro:
@@ -260,7 +244,6 @@ def _build_prompt(
 def _extract_lead_data(text: str) -> Optional[dict]:
     if LEAD_DATA_MARKER not in text:
         return None
-
     try:
         start = text.index(LEAD_DATA_MARKER) + len(LEAD_DATA_MARKER)
         end = text.index(LEAD_DATA_END, start)
@@ -273,7 +256,6 @@ def _extract_lead_data(text: str) -> Optional[dict]:
 def _strip_lead_marker(text: str) -> str:
     if LEAD_DATA_MARKER not in text:
         return text
-
     try:
         start = text.index(LEAD_DATA_MARKER)
         end = text.index(LEAD_DATA_END, start) + len(LEAD_DATA_END)
@@ -301,22 +283,12 @@ def _validate_lead_data(data: dict, sender_phone: str) -> Optional[str]:
             "LEAD_DATA sans phone explicite — sender_phone=%s sera utilisé comme fallback",
             sender_phone,
         )
-
     return None
 
 
 # ─── Dispatch création lead ───────────────────────────────────────────────────
 
 def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
-    """
-    Crée ou met à jour le lead.
-
-    Stratégie :
-    - Tente d'abord Django-Q2 (async) si disponible.
-    - Si Django-Q2 indisponible → fallback synchrone immédiat.
-    - Retourne le résultat de la création (dict avec status/lead_id/etc.)
-      en mode synchrone, ou {"status": "queued"} en mode async.
-    """
     error = _validate_lead_data(data, sender_phone)
     if error:
         logger.warning("Dispatch lead ignoré — %s | data=%s", error, data)
@@ -329,37 +301,26 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
     appointment_date = (data.get("appointment_date") or "").strip()
 
     raw_appointment_type = (data.get("appointment_type") or "").strip().lower()
-
     APPOINTMENT_TYPE_MAP = {
         "presentiel": "PRESENTIEL",
         "visio": "VISIO_CONFERENCE",
     }
-
     appointment_type = APPOINTMENT_TYPE_MAP.get(raw_appointment_type)
 
     if not appointment_type:
         logger.warning(
             "Dispatch lead ignoré — appointment_type invalide | raw=%s | data=%s",
-            raw_appointment_type,
-            data,
+            raw_appointment_type, data,
         )
         return {"status": "error", "error": "appointment_type invalide"}
 
     if not phone:
-        logger.warning(
-            "Dispatch lead ignoré — phone manquant (ni dans LEAD_DATA ni sender_phone) | data=%s",
-            data,
-        )
+        logger.warning("Dispatch lead ignoré — phone manquant | data=%s", data)
         return {"status": "error", "error": "phone manquant"}
 
     logger.info(
         "Dispatch lead — %s %s | phone=%s | rdv=%s | type=%s | email=%s",
-        first_name,
-        last_name,
-        phone,
-        appointment_date,
-        appointment_type,
-        email or "—",
+        first_name, last_name, phone, appointment_date, appointment_type, email or "—",
     )
 
     use_async = getattr(settings, "KEMORA_LEAD_ASYNC", False)
@@ -384,13 +345,9 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
             )
             logger.info(
                 "Lead dispatché via Django-Q2 — %s %s rdv=%s type=%s",
-                first_name,
-                last_name,
-                appointment_date,
-                appointment_type,
+                first_name, last_name, appointment_date, appointment_type,
             )
             return {"status": "queued"}
-
         except ImportError:
             logger.warning("Django-Q2 indisponible malgré KEMORA_LEAD_ASYNC=True — fallback synchrone")
         except Exception as exc:
@@ -409,8 +366,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
 
     logger.info(
         "Lead dispatch synchrone terminé — status=%s lead_id=%s",
-        result.get("status"),
-        result.get("lead_id"),
+        result.get("status"), result.get("lead_id"),
     )
     return result
 
@@ -477,12 +433,10 @@ def generate_agent_reply(
 
         if lead_data:
             lead_result = _dispatch_lead_creation(lead_data, sender_phone or "")
-
             if lead_result.get("status") == "error":
                 logger.error(
                     "Échec création/mise à jour lead — error=%s | data=%s",
-                    lead_result.get("error"),
-                    lead_data,
+                    lead_result.get("error"), lead_data,
                 )
             else:
                 logger.info(
@@ -510,6 +464,46 @@ def generate_agent_reply(
         return None
 
 
+# ─── Debounce helpers ─────────────────────────────────────────────────────────
+
+def _debounce_cache_key(sender_phone: str) -> str:
+    return f"kemora_debounce_{sender_phone}"
+
+
+def _collect_recent_messages(sender_phone: str, lead, since_seconds: int = 8) -> str:
+    from django.utils import timezone
+    import datetime
+
+    cutoff = timezone.now() - datetime.timedelta(seconds=since_seconds)
+
+    if lead:
+        qs = (
+            WhatsAppMessage.objects
+            .filter(lead=lead, is_outbound=False, timestamp__gte=cutoff)
+            .order_by("timestamp")
+        )
+    else:
+        qs = (
+            WhatsAppMessage.objects
+            .filter(
+                lead__isnull=True,
+                sender_phone=sender_phone,
+                is_outbound=False,
+                timestamp__gte=cutoff,
+            )
+            .order_by("timestamp")
+        )
+
+    bodies = [m.body for m in qs if m.body and m.body.strip()]
+
+    if len(bodies) <= 1:
+        return bodies[0] if bodies else ""
+
+    grouped = "\n".join(bodies)
+    logger.info("Burst détecté — %d messages regroupés | phone=%s", len(bodies), sender_phone)
+    return grouped
+
+
 # ─── Wrapper appelé par Django-Q2 ─────────────────────────────────────────────
 
 def trigger_agent_response(
@@ -517,56 +511,83 @@ def trigger_agent_response(
     sender_phone: str,
     lead_id: Optional[int] = None,
     wa_message_id: str = "",
+    debounce_token: str = "",
 ):
     """
-    Point d'entrée attendu par Django-Q2 :
-      api.whatsapp.agent.handler.trigger_agent_response
+    Point d'entrée attendu par Django-Q2.
 
-    Cette fonction :
-      - charge le lead si lead_id existe,
-      - envoie le typing indicator si wa_message_id est présent,
-      - génère la réponse Kemora,
-      - envoie le message via Meta,
-      - sauvegarde le message sortant en base.
+    Ordre d'exécution :
+      1. Check debounce token (abandon si message plus récent reçu).
+      2. Check agent_enabled (filet de sécurité au niveau worker).
+      3. Typing indicator.
+      4. Regroupage burst.
+      5. Génération réponse Gemini.
+      6. Envoi Meta + sauvegarde BDD.
     """
     logger.info(
         "trigger_agent_response START | phone=%s | lead_id=%s | wa_message_id=%s",
-        sender_phone,
-        lead_id,
-        wa_message_id,
+        sender_phone, lead_id, wa_message_id,
     )
 
+    # ── 1) Check debounce ─────────────────────────────────────────────────────
+    if debounce_token:
+        cache_key = _debounce_cache_key(sender_phone)
+        current_token = cache.get(cache_key)
+
+        if current_token != debounce_token:
+            logger.info(
+                "Debounce — tâche périmée abandonnée | phone=%s | token_task=%s | token_cache=%s",
+                sender_phone, debounce_token, current_token,
+            )
+            return None
+
+        cache.delete(cache_key)
+
+    # ── 2) Charger le lead ────────────────────────────────────────────────────
     lead = None
     if lead_id:
         try:
             lead = Lead.objects.get(id=lead_id)
         except Lead.DoesNotExist:
-            logger.warning(
-                "Lead introuvable dans trigger_agent_response | lead_id=%s",
-                lead_id,
-            )
+            logger.warning("Lead introuvable | lead_id=%s", lead_id)
+
+    # ── 3) Filet de sécurité agent_enabled (re-vérification dans le worker) ──
+    # Au cas où le toggle aurait été actionné entre le webhook et l'exécution
+    # de la tâche Q2 (fenêtre de quelques secondes liée au debounce).
+    agent_active = WhatsAppConversationSettings.is_agent_enabled(
+        lead=lead, phone=sender_phone
+    )
+    if not agent_active:
+        logger.info(
+            "Agent désactivé (worker) — réponse annulée | phone=%s | lead_id=%s",
+            sender_phone, lead_id,
+        )
+        return None
 
     try:
-        # 1) Typing indicator immédiatement
+        # ── 4) Typing indicator ───────────────────────────────────────────────
         if wa_message_id:
             send_whatsapp_typing_indicator(wa_message_id)
-        else:
-            logger.info(
-                "Typing indicator non envoyé | wa_message_id absent | phone=%s",
-                sender_phone,
-            )
 
-        # 2) Déterminer si c'est le premier message sortant
+        # ── 5) Regrouper les messages du burst ────────────────────────────────
+        debounce_seconds = getattr(settings, "KEMORA_DEBOUNCE_SECONDS", 4)
+        grouped_body = _collect_recent_messages(
+            sender_phone=sender_phone,
+            lead=lead,
+            since_seconds=debounce_seconds + 2,
+        )
+        effective_body = grouped_body or incoming_body
+
+        # ── 6) Premier contact ? ──────────────────────────────────────────────
         previous_outbound_exists = WhatsAppMessage.objects.filter(
             sender_phone=sender_phone,
             is_outbound=True,
         ).exists()
-
         first_contact = not previous_outbound_exists
 
-        # 3) Générer la réponse IA
+        # ── 7) Générer la réponse IA ──────────────────────────────────────────
         result = generate_agent_reply(
-            incoming_message=incoming_body,
+            incoming_message=effective_body,
             lead=lead,
             sender_phone=sender_phone,
             first_contact=first_contact,
@@ -582,17 +603,17 @@ def trigger_agent_response(
             logger.warning("Kemora a généré une réponse vide | phone=%s", sender_phone)
             return None
 
-        # 4) Si lead créé pendant la génération, on recharge
+        # ── 8) Recharger le lead si créé ─────────────────────────────────────
         if not lead and lead_result and lead_result.get("lead_id"):
             try:
                 lead = Lead.objects.get(id=lead_result["lead_id"])
             except Lead.DoesNotExist:
                 logger.warning(
-                    "Lead créé/maj annoncé mais introuvable après génération | lead_id=%s",
+                    "Lead annoncé introuvable après génération | lead_id=%s",
                     lead_result.get("lead_id"),
                 )
 
-        # 5) Envoi du vrai message WhatsApp
+        # ── 9) Envoi WhatsApp ─────────────────────────────────────────────────
         to_phone = normalize_phone_for_meta(sender_phone)
         meta_response = send_whatsapp_message(to_phone, reply_text)
 
@@ -601,7 +622,7 @@ def trigger_agent_response(
             or f"out_{to_phone}"
         )
 
-        # 6) Sauvegarde BDD
+        # ── 10) Sauvegarde BDD ────────────────────────────────────────────────
         with transaction.atomic():
             saved = WhatsAppMessage.objects.create(
                 wa_id=outbound_wa_id,
@@ -615,10 +636,7 @@ def trigger_agent_response(
 
         logger.info(
             "trigger_agent_response SUCCESS | db_id=%s | wa_id=%s | phone=%s | lead_id=%s",
-            saved.id,
-            outbound_wa_id,
-            to_phone,
-            getattr(lead, "id", None),
+            saved.id, outbound_wa_id, to_phone, getattr(lead, "id", None),
         )
 
         return {
@@ -631,8 +649,6 @@ def trigger_agent_response(
     except Exception as exc:
         logger.exception(
             "trigger_agent_response ERROR | phone=%s | lead_id=%s | error=%s",
-            sender_phone,
-            lead_id,
-            exc,
+            sender_phone, lead_id, exc,
         )
         raise
