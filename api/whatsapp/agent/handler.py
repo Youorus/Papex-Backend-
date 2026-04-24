@@ -404,10 +404,22 @@ def generate_agent_reply(
         if qs:
             history_text = _format_history(reversed(list(qs)))
 
+        logger.info(
+            "generate_agent_reply — historique chargé | messages=%d | chars=%d | phone=%s",
+            len(list(qs)) if qs else 0,
+            len(history_text),
+            sender_phone,
+        )
+
     except Exception as exc:
         logger.warning("Chargement historique échoué : %s", exc)
 
     try:
+        logger.info(
+            "generate_agent_reply — construction prompt | model=%s | phone=%s | first_contact=%s",
+            _get_model_name(), sender_phone, first_contact,
+        )
+
         prompt = _build_prompt(
             incoming_message=incoming_message,
             history_text=history_text,
@@ -417,6 +429,11 @@ def generate_agent_reply(
             first_contact=first_contact,
         )
 
+        logger.info(
+            "generate_agent_reply — appel Gemini START | model=%s | prompt_chars=%d | phone=%s",
+            _get_model_name(), len(prompt), sender_phone,
+        )
+
         client = _get_gemini_client()
         response = client.models.generate_content(
             model=_get_model_name(),
@@ -424,8 +441,14 @@ def generate_agent_reply(
         )
 
         full_reply = (response.text or "").strip()
+
+        logger.info(
+            "generate_agent_reply — appel Gemini OK | reply_chars=%d | phone=%s",
+            len(full_reply), sender_phone,
+        )
+
         if not full_reply:
-            logger.warning("Gemini — réponse vide")
+            logger.warning("Gemini — réponse vide | phone=%s", sender_phone)
             return None
 
         lead_data = _extract_lead_data(full_reply)
@@ -460,7 +483,7 @@ def generate_agent_reply(
         return clean_reply, lead_result
 
     except Exception as exc:
-        logger.exception("Erreur appel Gemini : %s", exc)
+        logger.exception("Erreur appel Gemini : %s | phone=%s", exc, sender_phone)
         return None
 
 
@@ -525,14 +548,19 @@ def trigger_agent_response(
       6. Envoi Meta + sauvegarde BDD.
     """
     logger.info(
-        "trigger_agent_response START | phone=%s | lead_id=%s | wa_message_id=%s",
-        sender_phone, lead_id, wa_message_id,
+        "trigger_agent_response START | phone=%s | lead_id=%s | wa_message_id=%s | debounce_token=%s",
+        sender_phone, lead_id, wa_message_id, debounce_token or "(vide)",
     )
 
     # ── 1) Check debounce ─────────────────────────────────────────────────────
     if debounce_token:
         cache_key = _debounce_cache_key(sender_phone)
         current_token = cache.get(cache_key)
+
+        logger.info(
+            "Debounce check | phone=%s | token_attendu=%s | token_cache=%s | match=%s",
+            sender_phone, debounce_token, current_token, current_token == debounce_token,
+        )
 
         if current_token != debounce_token:
             logger.info(
@@ -542,20 +570,30 @@ def trigger_agent_response(
             return None
 
         cache.delete(cache_key)
+        logger.info("Debounce — token validé et supprimé | phone=%s", sender_phone)
+    else:
+        logger.info(
+            "Debounce — aucun token fourni, exécution directe | phone=%s", sender_phone
+        )
 
     # ── 2) Charger le lead ────────────────────────────────────────────────────
     lead = None
     if lead_id:
         try:
             lead = Lead.objects.get(id=lead_id)
+            logger.info("Lead chargé | lead_id=%s | name=%s %s", lead_id, lead.first_name, lead.last_name)
         except Lead.DoesNotExist:
             logger.warning("Lead introuvable | lead_id=%s", lead_id)
+    else:
+        logger.info("Aucun lead_id fourni — conversation inconnue | phone=%s", sender_phone)
 
-    # ── 3) Filet de sécurité agent_enabled (re-vérification dans le worker) ──
-    # Au cas où le toggle aurait été actionné entre le webhook et l'exécution
-    # de la tâche Q2 (fenêtre de quelques secondes liée au debounce).
+    # ── 3) Filet de sécurité agent_enabled ───────────────────────────────────
     agent_active = WhatsAppConversationSettings.is_agent_enabled(
         lead=lead, phone=sender_phone
+    )
+    logger.info(
+        "Agent enabled check | phone=%s | lead_id=%s | agent_active=%s",
+        sender_phone, lead_id, agent_active,
     )
     if not agent_active:
         logger.info(
@@ -567,6 +605,7 @@ def trigger_agent_response(
     try:
         # ── 4) Typing indicator ───────────────────────────────────────────────
         if wa_message_id:
+            logger.info("Envoi typing indicator | wa_message_id=%s | phone=%s", wa_message_id, sender_phone)
             send_whatsapp_typing_indicator(wa_message_id)
 
         # ── 5) Regrouper les messages du burst ────────────────────────────────
@@ -577,6 +616,10 @@ def trigger_agent_response(
             since_seconds=debounce_seconds + 2,
         )
         effective_body = grouped_body or incoming_body
+        logger.info(
+            "Corps effectif | phone=%s | original_chars=%d | effective_chars=%d | grouped=%s",
+            sender_phone, len(incoming_body), len(effective_body), bool(grouped_body),
+        )
 
         # ── 6) Premier contact ? ──────────────────────────────────────────────
         previous_outbound_exists = WhatsAppMessage.objects.filter(
@@ -584,8 +627,12 @@ def trigger_agent_response(
             is_outbound=True,
         ).exists()
         first_contact = not previous_outbound_exists
+        logger.info(
+            "Premier contact | phone=%s | first_contact=%s", sender_phone, first_contact
+        )
 
         # ── 7) Générer la réponse IA ──────────────────────────────────────────
+        logger.info("Appel generate_agent_reply | phone=%s | lead_id=%s", sender_phone, lead_id)
         result = generate_agent_reply(
             incoming_message=effective_body,
             lead=lead,
@@ -603,10 +650,16 @@ def trigger_agent_response(
             logger.warning("Kemora a généré une réponse vide | phone=%s", sender_phone)
             return None
 
+        logger.info(
+            "Réponse Kemora prête | phone=%s | chars=%d | lead_result=%s",
+            sender_phone, len(reply_text), lead_result,
+        )
+
         # ── 8) Recharger le lead si créé ─────────────────────────────────────
         if not lead and lead_result and lead_result.get("lead_id"):
             try:
                 lead = Lead.objects.get(id=lead_result["lead_id"])
+                logger.info("Lead rechargé après création | lead_id=%s", lead_result["lead_id"])
             except Lead.DoesNotExist:
                 logger.warning(
                     "Lead annoncé introuvable après génération | lead_id=%s",
@@ -615,12 +668,14 @@ def trigger_agent_response(
 
         # ── 9) Envoi WhatsApp ─────────────────────────────────────────────────
         to_phone = normalize_phone_for_meta(sender_phone)
+        logger.info("Envoi WhatsApp | to=%s | chars=%d", to_phone, len(reply_text))
         meta_response = send_whatsapp_message(to_phone, reply_text)
 
         outbound_wa_id = (
             meta_response.get("messages", [{}])[0].get("id")
             or f"out_{to_phone}"
         )
+        logger.info("WhatsApp envoyé | wa_id=%s | to=%s", outbound_wa_id, to_phone)
 
         # ── 10) Sauvegarde BDD ────────────────────────────────────────────────
         with transaction.atomic():
