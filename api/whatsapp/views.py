@@ -562,22 +562,28 @@ def send_message(request):
 @permission_classes([AllowAny])
 def media_download(request, message_id: int):
     """
-    Récupère l'URL de téléchargement d'un média depuis l'API Meta Graph.
-    L'URL retournée est valide ~5 minutes — elle doit être consommée immédiatement.
+    Proxy de téléchargement de médias WhatsApp.
 
     GET /api/whatsapp/media/<message_id>/
+    → Télécharge le fichier depuis Meta et le renvoie directement au navigateur.
+
+    Pourquoi un proxy et pas juste l'URL Meta ?
+    - Les URLs Meta sont bloquées par CORS (interdites directement depuis le navigateur).
+    - Elles expirent en ~5 minutes.
+    - Le navigateur ne peut pas envoyer le Bearer token Meta lui-même.
     """
     try:
         msg = WhatsAppMessage.objects.get(id=message_id)
     except WhatsAppMessage.DoesNotExist:
-        return Response({"detail": "Message introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        from django.http import Http404
+        raise Http404
 
     if not msg.media_id:
-        return Response({"detail": "Ce message n'a pas de média."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "Ce message n\'a pas de média."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Si on a déjà une URL fraîche (stockée dans la même requête), on la retourne
-    # Sinon on va chercher via l'API Meta
     import requests as req
+    from django.http import StreamingHttpResponse
+
     access_token = getattr(settings, "WHATSAPP_ACCESS_TOKEN", None)
     if not access_token:
         return Response(
@@ -585,17 +591,17 @@ def media_download(request, message_id: int):
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
+    auth_header = {"Authorization": f"Bearer {access_token}"}
+
     try:
-        # Étape 1 : récupérer l'URL du média
-        media_info_url = f"https://graph.facebook.com/v25.0/{msg.media_id}"
-        resp = req.get(
-            media_info_url,
-            headers={"Authorization": f"Bearer {access_token}"},
+        # Étape 1 : récupérer l'URL de téléchargement depuis l'API Meta Graph
+        meta_info = req.get(
+            f"https://graph.facebook.com/v25.0/{msg.media_id}",
+            headers=auth_header,
             timeout=10,
         )
-        resp.raise_for_status()
-        media_data = resp.json()
-        download_url = media_data.get("url")
+        meta_info.raise_for_status()
+        download_url = meta_info.json().get("url")
 
         if not download_url:
             return Response(
@@ -603,20 +609,54 @@ def media_download(request, message_id: int):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        # Sauvegarder l'URL pour référence (elle expire rapidement)
-        WhatsAppMessage.objects.filter(id=message_id).update(media_url=download_url)
+        # Étape 2 : télécharger le binaire depuis Meta (streaming)
+        media_resp = req.get(
+            download_url,
+            headers=auth_header,
+            timeout=30,
+            stream=True,
+        )
+        media_resp.raise_for_status()
 
-        return _no_cache(Response({
-            "media_url": download_url,
-            "media_mime_type": msg.media_mime_type,
-            "media_filename": msg.media_filename,
-            "media_id": msg.media_id,
-        }))
+        # Déterminer le content-type
+        content_type = (
+            msg.media_mime_type
+            or media_resp.headers.get("Content-Type", "application/octet-stream")
+        )
+
+        # Nom de fichier pour le téléchargement (documents)
+        filename = msg.media_filename or f"media_{message_id}"
+
+        # Réponse streaming — on renvoie les chunks directement sans tout charger en RAM
+        def stream_chunks():
+            for chunk in media_resp.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        response = StreamingHttpResponse(
+            stream_chunks(),
+            content_type=content_type,
+        )
+
+        # Content-Disposition : inline pour images/audio/video, attachment pour documents
+        is_inline = content_type.startswith(("image/", "audio/", "video/"))
+        disposition = "inline" if is_inline else f'attachment; filename="{filename}"'
+        response["Content-Disposition"] = disposition
+
+        # CORS — autoriser le frontend à accéder au binaire
+        response["Access-Control-Allow-Origin"] = "*"
+        response["Cache-Control"] = "private, max-age=300"  # cache 5 min côté navigateur
+
+        logger.info(
+            "Média proxy OK | db_id=%s | media_id=%s | type=%s | inline=%s",
+            message_id, msg.media_id, content_type, is_inline,
+        )
+        return response
 
     except req.HTTPError as exc:
         logger.error(
-            "Erreur API Meta lors du téléchargement média | media_id=%s | error=%s",
-            msg.media_id, exc,
+            "Erreur API Meta proxy média | media_id=%s | status=%s | error=%s",
+            msg.media_id, exc.response.status_code if exc.response else "?", exc,
         )
         return Response(
             {"detail": "Erreur API Meta.", "error": str(exc)},
@@ -624,7 +664,7 @@ def media_download(request, message_id: int):
         )
     except Exception as exc:
         logger.exception(
-            "Erreur inattendue téléchargement média | media_id=%s | error=%s",
+            "Erreur inattendue proxy média | media_id=%s | error=%s",
             msg.media_id, exc,
         )
         return Response(

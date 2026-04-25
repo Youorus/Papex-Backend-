@@ -30,7 +30,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL")
 # APPS
 # -----------------------------------------------------------------------------
 DJANGO_APPS = [
-    "django.contrib.admin",        # ✅ Requis pour /admin/
+    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -42,7 +42,7 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "storages",
     "channels",
-    "django_q",          # ✅ Django-Q2 remplace django_celery_beat + celery
+    "django_q",
     "django_filters",
     "drf_spectacular",
     "rest_framework",
@@ -143,11 +143,15 @@ AUTHENTICATION_BACKENDS = [
     "api.custom_auth.authentication.EmailBackend",
 ]
 
-
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 WHATSAPP_AGENT_ENABLED = os.getenv("WHATSAPP_AGENT_ENABLED", "False").lower() == "true"
 
+# Debounce Kemora en secondes (délai d'attente avant de traiter un burst de messages)
+KEMORA_DEBOUNCE_SECONDS = int(os.getenv("KEMORA_DEBOUNCE_SECONDS", "4"))
+
+# Création de leads en async via Django-Q2 (False = synchrone, plus simple)
+KEMORA_LEAD_ASYNC = os.getenv("KEMORA_LEAD_ASYNC", "False").lower() == "true"
 
 # -----------------------------------------------------------------------------
 # I18N
@@ -179,19 +183,111 @@ REST_FRAMEWORK = {
 # STATIC
 # -----------------------------------------------------------------------------
 STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # -----------------------------------------------------------------------------
-# CACHES
+# REDIS
+# Le même Redis est utilisé pour :
+#   - Django Channels (WebSocket)
+#   - Le cache Django (debounce Kemora, sessions, etc.)
 # -----------------------------------------------------------------------------
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "papex-cache",
-        "TIMEOUT": 3600,
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+USE_UPSTASH = "upstash.io" in REDIS_URL
+IS_REDIS_SSL = REDIS_URL.startswith("rediss://")
+
+# -----------------------------------------------------------------------------
+# CACHES — Redis partagé entre le process web ET les workers Django-Q2
+# -----------------------------------------------------------------------------
+# ⚠️  CRITIQUE pour le debounce Kemora :
+#     Le process web écrit le token dans le cache.
+#     Les workers Django-Q2 (processus séparés) lisent ce même token.
+#     → Avec LocMemCache chaque process a son propre cache isolé = token jamais trouvé.
+#     → Avec Redis le cache est partagé entre TOUS les processus = debounce fonctionnel.
+# -----------------------------------------------------------------------------
+if IS_REDIS_SSL:
+    # Upstash / Redis avec TLS (rediss://)
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "ssl_cert_reqs": None,  # Upstash n'exige pas de certificat client
+            },
+            "TIMEOUT": 300,  # 5 min par défaut (suffisant pour le debounce ~60s)
+        }
     }
+else:
+    # Redis local ou sans TLS
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "TIMEOUT": 300,
+        }
+    }
+
+# -----------------------------------------------------------------------------
+# CHANNELS (WebSocket)
+# -----------------------------------------------------------------------------
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [
+                {
+                    "address": REDIS_URL,
+                    **({
+                        "connection_class": SSLConnection,
+                    } if USE_UPSTASH else {}),
+                }
+            ],
+            "capacity": 1500,
+            "expiry": 20,
+        },
+    },
 }
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# -----------------------------------------------------------------------------
+# DJANGO-Q2
+# Broker : Postgres (pas de dépendance Redis supplémentaire pour les tâches)
+# -----------------------------------------------------------------------------
+Q_CLUSTER = {
+    "name": "papex",
+
+    # Broker Postgres — file de tâches persistante, aucune perte si restart
+    "orm": "default",
+
+    # 4 workers I/O-bound (Gemini ~8s + Meta ~1s par tâche)
+    "workers": 4,
+
+    # 5 tâches max en mémoire par worker, le reste attend en base
+    "queue_limit": 5,
+
+    # Kemora : Gemini (~8s) + Meta (~1s) + marge = 90s max
+    "timeout": 90,
+
+    # ✅ retry > timeout : évite le re-déclenchement avant la fin d'exécution
+    "retry": 120,
+
+    # 2 tentatives max (abandon propre si Gemini est down)
+    "max_attempts": 2,
+
+    # Polling toutes les secondes (réactif, 4 SELECT/s max)
+    "poll": 1,
+
+    # Scheduler actif (rappels RDV, etc.)
+    "schedule_tasks": True,
+
+    "timezone": "Europe/Paris",
+    "compress": True,
+
+    # 500 derniers résultats visibles dans /admin/ pour debug
+    "save_limit": 500,
+
+    "log_level": "INFO",
+}
 
 # -----------------------------------------------------------------------------
 # EMAIL (SMTP)
@@ -240,7 +336,6 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
-
 # WhatsApp Meta Cloud API
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN    = os.getenv("WHATSAPP_ACCESS_TOKEN")
@@ -251,6 +346,9 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_DOMAIN = COOKIE_DOMAIN
 SESSION_COOKIE_PATH = "/"
 SESSION_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_AGE = 60 * 60 * 8  # 8 heures
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = False
@@ -279,7 +377,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # -----------------------------------------------------------------------------
-# DATABASE (Render/Postgres)
+# DATABASE (Render / Postgres)
 # -----------------------------------------------------------------------------
 DATABASES = {
     "default": dj_database_url.config(
@@ -303,101 +401,6 @@ DATABASES["default"].update(
         "DISABLE_SERVER_SIDE_CURSORS": True,
     }
 )
-
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Papiers Express API",
-    "DESCRIPTION": "Documentation des endpoints de l'application Papex",
-    "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-    # Tu peux choisir le style de Swagger
-    "SWAGGER_UI_SETTINGS": {
-        "deepLinking": True,
-        "persistAuthorization": True,
-        "displayOperationId": True,
-    },
-}
-
-# -----------------------------------------------------------------------------
-# REDIS (uniquement pour Django Channels — WebSocket)
-# ✅ Plus utilisé comme broker de tâches (c'est la DB Postgres qui s'en charge)
-# -----------------------------------------------------------------------------
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-USE_UPSTASH = "upstash.io" in REDIS_URL
-IS_REDIS_SSL = REDIS_URL.startswith("rediss://")
-
-# -----------------------------------------------------------------------------
-# CHANNELS (WebSocket — Redis conservé uniquement ici)
-# -----------------------------------------------------------------------------
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [
-                {
-                    "address": REDIS_URL,
-                    **({"connection_class": SSLConnection} if USE_UPSTASH else {}),
-                }
-            ],
-            "capacity": 1500,
-            "expiry": 20,
-        },
-    },
-}
-
-# -----------------------------------------------------------------------------
-# DJANGO-Q2
-# ✅ Remplace Celery + Celery Beat + Redis broker
-# Broker : ta base Postgres (aucune dépendance externe supplémentaire)
-# Un seul worker léger suffit sur 1 CPU / 2 Go RAM
-# -----------------------------------------------------------------------------
-Q_CLUSTER = {
-    "name": "papex",
-
-    # ── Broker ──────────────────────────────────────────────
-    "orm": "default",  # Postgres — aucun Redis nécessaire pour les tâches
-
-    # ── Workers ─────────────────────────────────────────────
-    # ⬆️  Augmenté de 2 → 4 pour gérer la charge Kemora (I/O-bound)
-    # Chaque worker traite 1 conversation Kemora à la fois.
-    # Les autres messages attendent en file Postgres (pas de perte).
-    "workers": 4,
-
-    # ── File mémoire par worker ──────────────────────────────
-    # 5 tâches max en attente par worker en mémoire.
-    # Le reste reste en base (pas de perte si restart).
-    "queue_limit": 5,
-
-    # ── Retry & timeouts ────────────────────────────────────
-    # Kemora appelle Gemini (~8s) + Meta API (~1s) = ~10s nominal.
-    # On donne 90s max avant de killer la tâche (timeout réseau inclus).
-    "timeout": 90,
-    # Réessaie une tâche échouée après 60s (évite de spammer Gemini si erreur)
-    "retry": 60,
-    # 2 tentatives max — si Gemini est down 2 fois, on abandonne proprement
-    "max_attempts": 2,
-
-    # ── Polling ─────────────────────────────────────────────
-    # 1s = très réactif. À 100 messages/min, ça ne charge pas la DB
-    # (1 SELECT léger par seconde par worker = 4 SELECT/s au total).
-    "poll": 1,
-
-    # ── Scheduler ───────────────────────────────────────────
-    "schedule_tasks": True,
-
-    # ── Timezone ────────────────────────────────────────────
-    "timezone": "Europe/Paris",
-
-    # ── Compression des arguments ───────────────────────────
-    "compress": True,
-
-    # ── Sauvegarde des résultats ────────────────────────────
-    # Garde les 500 derniers résultats pour debug Kemora dans /admin/
-    "save_limit": 500,
-
-    # ── Log level ───────────────────────────────────────────
-    "log_level": "INFO",
-}
 
 # -----------------------------------------------------------------------------
 # STORAGE (Scaleway S3)
@@ -428,15 +431,23 @@ SCW_BUCKETS = {
     "candidates": BUCKET_CV,
 }
 
-STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
-
 if STORAGE_BACKEND == "aws":
     DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 
-SESSION_COOKIE_AGE = 60 * 60 * 8  # 8 heures
-SESSION_SAVE_EVERY_REQUEST = True
-SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+# -----------------------------------------------------------------------------
+# SPECTACULAR (OpenAPI)
+# -----------------------------------------------------------------------------
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Papiers Express API",
+    "DESCRIPTION": "Documentation des endpoints de l'application Papex",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayOperationId": True,
+    },
+}
 
 # -----------------------------------------------------------------------------
 # LOGGING
@@ -462,14 +473,11 @@ LOGGING = {
     },
 
     "loggers": {
-        # 🔥 Django-Q logs
         "django_q": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
         },
-
-        # 🔥 Tes apps
         "api": {
             "handlers": ["console"],
             "level": "INFO",
