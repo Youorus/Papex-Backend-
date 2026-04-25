@@ -132,7 +132,7 @@ class LeadSource(models.TextChoices):
     INBOUND_CALL = "INBOUND_CALL", _("Appel entrant")
     SMS = "SMS", _("SMS")
     EMAIL = "EMAIL", _("Email")
-
+    KEMORA = "KEMIA", _("Agent Kemia (WhatsApp IA)")
     # 📰 Contenu & médias
     BLOG = "BLOG", _("Article de blog")
     PRESS = "PRESS", _("Article presse")

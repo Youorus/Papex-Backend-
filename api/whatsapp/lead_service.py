@@ -314,8 +314,8 @@ def create_lead_from_kemora(
             default_status = LeadStatus.objects.order_by("id").first()
             logger.warning("Statut %s introuvable — fallback premier statut", RDV_A_CONFIRMER)
 
-        # ── Source WhatsApp ───────────────────────────────────────────────────
-        lead_source = getattr(LeadSource, "WHATSAPP", LeadSource.WEBSITE)
+        # ── Source Kemora (agent IA WhatsApp) ──────────────────────────────────
+        lead_source = getattr(LeadSource, "KEMORA", LeadSource.WEBSITE)
 
         lead_kwargs = {
             "first_name":        first_name,
