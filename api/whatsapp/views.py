@@ -28,11 +28,19 @@ from .utils import get_lead_by_phone, normalize_phone_for_meta, send_whatsapp_me
 
 logger = logging.getLogger(__name__)
 
-# Délai debounce en secondes
 AGENT_DEBOUNCE_SECONDS = getattr(settings, "KEMORA_DEBOUNCE_SECONDS", 4)
 
-# Types de messages qui ne doivent pas déclencher l'agent ni être sauvegardés
+# Types ignorés : pas de réponse IA ni de sauvegarde
 IGNORED_MESSAGE_TYPES = {"reaction", "unsupported"}
+
+# Types média à sauvegarder avec leur représentation textuelle pour l'agent
+MEDIA_TYPE_LABELS = {
+    "image": "[Image]",
+    "audio": "[Audio]",
+    "video": "[Video]",
+    "document": "[Document]",
+    "sticker": "[Sticker]",
+}
 
 
 def _no_cache(response):
@@ -42,50 +50,148 @@ def _no_cache(response):
     return response
 
 
-def _extract_message_body(msg: dict) -> str:
+def _parse_wa_timestamp(ts_value) -> "datetime":
+    """Convertit le timestamp Unix Meta (int ou str) en datetime aware."""
+    from django.utils import timezone
+    import datetime
+
+    try:
+        ts = int(ts_value)
+        return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return timezone.now()
+
+
+def _extract_message_data(msg: dict) -> dict:
+    """
+    Extrait toutes les données utiles d'un message WhatsApp entrant.
+
+    Retourne un dict avec :
+        body       : texte lisible (peut être [Image], [Audio], etc.)
+        media_id   : ID Meta du média (si applicable)
+        media_mime : MIME type (si disponible)
+        media_caption : légende (si image/video avec caption)
+        media_filename : nom du fichier (si document)
+    """
     msg_type = msg.get("type", "text")
 
+    # ── Texte simple ──────────────────────────────────────────────────────────
     if msg_type == "text":
-        return msg.get("text", {}).get("body", "")
+        return {
+            "body": msg.get("text", {}).get("body", ""),
+            "media_id": None,
+            "media_mime": None,
+            "media_caption": None,
+            "media_filename": None,
+        }
 
+    # ── Bouton interactif ─────────────────────────────────────────────────────
     if msg_type == "button":
-        return msg.get("button", {}).get("text", "")
+        return {
+            "body": msg.get("button", {}).get("text", ""),
+            "media_id": None,
+            "media_mime": None,
+            "media_caption": None,
+            "media_filename": None,
+        }
 
+    # ── Liste interactive ─────────────────────────────────────────────────────
     if msg_type == "interactive":
         interactive = msg.get("interactive", {})
         itype = interactive.get("type")
         if itype == "button_reply":
-            return interactive.get("button_reply", {}).get("title", "")
-        if itype == "list_reply":
-            return interactive.get("list_reply", {}).get("title", "")
+            body = interactive.get("button_reply", {}).get("title", "")
+        elif itype == "list_reply":
+            body = interactive.get("list_reply", {}).get("title", "")
+        else:
+            body = f"[Interactive: {itype}]"
+        return {
+            "body": body,
+            "media_id": None,
+            "media_mime": None,
+            "media_caption": None,
+            "media_filename": None,
+        }
 
-    media_types = {
-        "image": "[Image]",
-        "audio": "[Audio]",
-        "video": "[Video]",
-        "document": "[Document]",
-        "sticker": "[Sticker]",
+    # ── Image ─────────────────────────────────────────────────────────────────
+    if msg_type == "image":
+        img = msg.get("image", {})
+        return {
+            "body": "[Image]",
+            "media_id": img.get("id"),
+            "media_mime": img.get("mime_type", "image/jpeg"),
+            "media_caption": img.get("caption") or None,
+            "media_filename": None,
+        }
+
+    # ── Audio / Vocal ─────────────────────────────────────────────────────────
+    if msg_type == "audio":
+        audio = msg.get("audio", {})
+        return {
+            "body": "[Audio]",
+            "media_id": audio.get("id"),
+            "media_mime": audio.get("mime_type", "audio/ogg; codecs=opus"),
+            "media_caption": None,
+            "media_filename": None,
+        }
+
+    # ── Vidéo ─────────────────────────────────────────────────────────────────
+    if msg_type == "video":
+        vid = msg.get("video", {})
+        return {
+            "body": "[Video]",
+            "media_id": vid.get("id"),
+            "media_mime": vid.get("mime_type", "video/mp4"),
+            "media_caption": vid.get("caption") or None,
+            "media_filename": None,
+        }
+
+    # ── Document ──────────────────────────────────────────────────────────────
+    if msg_type == "document":
+        doc = msg.get("document", {})
+        filename = doc.get("filename") or "document"
+        return {
+            "body": f"[Document: {filename}]",
+            "media_id": doc.get("id"),
+            "media_mime": doc.get("mime_type", "application/octet-stream"),
+            "media_caption": doc.get("caption") or None,
+            "media_filename": filename,
+        }
+
+    # ── Sticker ───────────────────────────────────────────────────────────────
+    if msg_type == "sticker":
+        sticker = msg.get("sticker", {})
+        return {
+            "body": "[Sticker]",
+            "media_id": sticker.get("id"),
+            "media_mime": sticker.get("mime_type", "image/webp"),
+            "media_caption": None,
+            "media_filename": None,
+        }
+
+    # ── Fallback ──────────────────────────────────────────────────────────────
+    return {
+        "body": f"[{msg_type}]",
+        "media_id": None,
+        "media_mime": None,
+        "media_caption": None,
+        "media_filename": None,
     }
-    return media_types.get(msg_type, f"[{msg_type}]")
 
 
 def _process_incoming_message(msg: dict):
-    wa_phone  = msg.get("from", "")
-    wa_id     = msg.get("id", "")
-    msg_type  = msg.get("type", "unknown")
-    text_body = _extract_message_body(msg)
+    wa_phone = msg.get("from", "")
+    wa_id = msg.get("id", "")
+    msg_type = msg.get("type", "unknown")
+    wa_timestamp = msg.get("timestamp")
 
     logger.info(
-        "Traitement du message WhatsApp entrant | wa_id=%s | from=%s | type=%s | body=%s",
-        wa_id, wa_phone, msg_type, text_body,
+        "Traitement du message WhatsApp entrant | wa_id=%s | from=%s | type=%s",
+        wa_id, wa_phone, msg_type,
     )
 
-    # ── Ignorer les types qui ne méritent pas de réponse IA ──────────────────
     if msg_type in IGNORED_MESSAGE_TYPES:
-        logger.info(
-            "Message ignoré (type non traitable) | wa_id=%s | type=%s",
-            wa_id, msg_type,
-        )
+        logger.info("Message ignoré (type non traitable) | wa_id=%s | type=%s", wa_id, msg_type)
         return
 
     if not wa_id or not wa_phone:
@@ -106,11 +212,14 @@ def _process_incoming_message(msg: dict):
         logger.exception("Échec recherche lead | wa_phone=%s | error=%s", wa_phone, exc)
         lead = None
 
+    # Extraction des données du message (texte + média)
+    extracted = _extract_message_data(msg)
+    text_body = extracted["body"]
+    real_timestamp = _parse_wa_timestamp(wa_timestamp)
+
     logger.info(
-        "Résultat de la recherche de prospect | wa_phone=%s | lead_id=%s | lead_name=%s",
-        wa_phone,
-        getattr(lead, "id", None),
-        f"{lead.first_name} {lead.last_name}" if lead else "inconnu",
+        "Résultat de la recherche de prospect | wa_phone=%s | lead_id=%s | body=%s",
+        wa_phone, getattr(lead, "id", None), text_body[:60],
     )
 
     try:
@@ -122,10 +231,16 @@ def _process_incoming_message(msg: dict):
             is_outbound=False,
             is_read=False,
             delivery_status="delivered",
+            timestamp=real_timestamp,
+            # Médias
+            media_id=extracted["media_id"],
+            media_mime_type=extracted["media_mime"],
+            media_caption=extracted["media_caption"],
+            media_filename=extracted["media_filename"],
         )
         logger.info(
-            "Message entrant enregistré | db_id=%s | wa_id=%s | lead_id=%s",
-            saved_message.id, wa_id, getattr(lead, "id", None),
+            "Message entrant enregistré | db_id=%s | wa_id=%s | lead_id=%s | type=%s",
+            saved_message.id, wa_id, getattr(lead, "id", None), msg_type,
         )
     except Exception as exc:
         logger.exception(
@@ -133,7 +248,7 @@ def _process_incoming_message(msg: dict):
         )
         return
 
-    # Confirmation automatique de RDV
+    # Confirmation automatique de RDV via mot-clé
     if lead and text_body and ("oui" in text_body.lower() or "confirme" in text_body.lower()):
         try:
             status_confirme = LeadStatus.objects.get(code=RDV_CONFIRME)
@@ -147,22 +262,17 @@ def _process_incoming_message(msg: dict):
         except LeadStatus.DoesNotExist:
             logger.error("LeadStatus RDV_CONFIRME introuvable")
         except Exception as exc:
-            logger.exception(
-                "Échec mise à jour statut lead | lead_id=%s | error=%s", lead.id, exc,
-            )
+            logger.exception("Échec mise à jour statut lead | lead_id=%s | error=%s", lead.id, exc)
 
-    # ── Vérification agent_enabled AVANT de dispatcher ───────────────────────
+    # Vérification agent_enabled
     agent_active = WhatsAppConversationSettings.is_agent_enabled(lead=lead, phone=wa_phone)
-
     if not agent_active:
         logger.info(
-            "Agent désactivé pour cette conversation — pas de réponse automatique | phone=%s | lead_id=%s",
-            wa_phone,
-            getattr(lead, "id", None),
+            "Agent désactivé — pas de réponse automatique | phone=%s | lead_id=%s",
+            wa_phone, getattr(lead, "id", None),
         )
         return
 
-    # ── Debounce + dispatch ───────────────────────────────────────────────────
     _schedule_debounced_agent(
         text_body=text_body,
         sender_phone=wa_phone,
@@ -171,9 +281,7 @@ def _process_incoming_message(msg: dict):
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Debounce : un seul appel Gemini par burst de messages
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Debounce ─────────────────────────────────────────────────────────────────
 
 def _debounce_cache_key(sender_phone: str) -> str:
     return f"kemora_debounce_{sender_phone}"
@@ -185,21 +293,14 @@ def _eta_from_now(seconds: int):
     return timezone.now() + datetime.timedelta(seconds=seconds)
 
 
-def _schedule_debounced_agent(
-    text_body: str,
-    sender_phone: str,
-    lead,
-    wa_message_id: str,
-) -> None:
+def _schedule_debounced_agent(text_body, sender_phone, lead, wa_message_id):
     token = str(uuid.uuid4())
     cache_key = _debounce_cache_key(sender_phone)
     cache.set(cache_key, token, timeout=60)
-
     logger.info(
         "Jeton de délai défini | téléphone=%s | jeton=%s | délai=%ds",
         sender_phone, token, AGENT_DEBOUNCE_SECONDS,
     )
-
     _dispatch_agent_q2(
         text_body=text_body,
         sender_phone=sender_phone,
@@ -209,15 +310,8 @@ def _schedule_debounced_agent(
     )
 
 
-def _dispatch_agent_q2(
-    text_body: str,
-    sender_phone: str,
-    lead,
-    wa_message_id: str = "",
-    debounce_token: str = "",
-) -> None:
+def _dispatch_agent_q2(text_body, sender_phone, lead, wa_message_id="", debounce_token=""):
     lead_id = getattr(lead, "id", None)
-
     try:
         from django_q.tasks import async_task
         task_id = async_task(
@@ -229,7 +323,7 @@ def _dispatch_agent_q2(
             debounce_token=debounce_token,
             q_options={
                 "task_name": f"kemora_{sender_phone[-8:]}",
-                "timeout":   120,
+                "timeout": 120,
                 "max_attempts": 1,
                 "group": "kemora",
                 "eta": _eta_from_now(AGENT_DEBOUNCE_SECONDS),
@@ -260,7 +354,7 @@ def _dispatch_agent_q2(
 
 
 def _process_status_update(st: dict):
-    wa_id        = st.get("id")
+    wa_id = st.get("id")
     status_value = st.get("status")
 
     if not wa_id or not status_value:
@@ -270,11 +364,11 @@ def _process_status_update(st: dict):
         return
 
     try:
-        msg = WhatsAppMessage.objects.get(wa_id=wa_id)
-        msg.delivery_status = status_value
+        msg_obj = WhatsAppMessage.objects.get(wa_id=wa_id)
+        msg_obj.delivery_status = status_value
         if status_value == "read":
-            msg.is_read = True
-        msg.save(update_fields=["delivery_status", "is_read"])
+            msg_obj.is_read = True
+        msg_obj.save(update_fields=["delivery_status", "is_read"])
         logger.info("Statut sauvegardé | wa_id=%s | status=%s", wa_id, status_value)
     except WhatsAppMessage.DoesNotExist:
         logger.warning("Statut ignoré | message local introuvable pour wa_id=%s", wa_id)
@@ -282,40 +376,35 @@ def _process_status_update(st: dict):
         logger.exception("Échec sauvegarde statut | wa_id=%s | error=%s", wa_id, exc)
 
 
+# ─── Views ────────────────────────────────────────────────────────────────────
+
 @never_cache
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def whatsapp_webhook(request):
     if request.method == "GET":
         verify_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", "papex_secret_2026")
-        mode      = request.GET.get("hub.mode")
-        token     = request.GET.get("hub.verify_token")
+        mode = request.GET.get("hub.mode")
+        token = request.GET.get("hub.verify_token")
         challenge = request.GET.get("hub.challenge")
 
         if mode == "subscribe" and token == verify_token:
             logger.info("WhatsApp webhook vérifié")
             return HttpResponse(challenge, status=200)
 
-        logger.warning("Échec vérification webhook WhatsApp | mode=%s | token=%s", mode, token)
+        logger.warning("Échec vérification webhook | mode=%s | token=%s", mode, token)
         return HttpResponse("Forbidden", status=403)
 
     try:
         body = json.loads(request.body)
-
         for entry in body.get("entry", []):
             for change in entry.get("changes", []):
-                value    = change.get("value", {})
-                messages = value.get("messages", [])
-                statuses = value.get("statuses", [])
-
-                for msg in messages:
+                value = change.get("value", {})
+                for msg in value.get("messages", []):
                     _process_incoming_message(msg)
-
-                for st in statuses:
+                for st in value.get("statuses", []):
                     _process_status_update(st)
-
         return _no_cache(HttpResponse("EVENT_RECEIVED", status=200))
-
     except Exception as exc:
         logger.exception("Erreur Webhook WhatsApp : %s", exc)
         return _no_cache(HttpResponse("EVENT_RECEIVED", status=200))
@@ -370,19 +459,19 @@ def conversation_list(request):
         unknown = []
         for phone in unknown_phone_list:
             phone_msgs = msgs_by_phone.get(phone, [])
-            last_msg   = phone_msgs[0] if phone_msgs else None
-            unread     = sum(1 for m in phone_msgs if not m.is_outbound and not m.is_read)
-            agent_on   = agent_by_phone.get(phone, True)
+            last_msg = phone_msgs[0] if phone_msgs else None
+            unread = sum(1 for m in phone_msgs if not m.is_outbound and not m.is_read)
+            agent_on = agent_by_phone.get(phone, True)
 
             unknown.append({
-                "id":           None,
+                "id": None,
                 "sender_phone": phone,
-                "first_name":   "Inconnu",
-                "last_name":    phone,
-                "phone":        phone,
+                "first_name": "Inconnu",
+                "last_name": phone,
+                "phone": phone,
                 "last_message": WhatsAppMessageSerializer(last_msg).data if last_msg else None,
                 "unread_count": unread,
-                "is_unknown":   True,
+                "is_unknown": True,
                 "agent_enabled": agent_on,
             })
     else:
@@ -429,13 +518,13 @@ def send_message(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     lead_id = serializer.validated_data.get("lead_id")
-    phone   = serializer.validated_data.get("phone")
-    body    = serializer.validated_data["body"]
+    phone = serializer.validated_data.get("phone")
+    body = serializer.validated_data["body"]
 
     lead = None
     if lead_id:
         try:
-            lead     = Lead.objects.get(id=lead_id)
+            lead = Lead.objects.get(id=lead_id)
             to_phone = normalize_phone_for_meta(lead.phone)
         except Lead.DoesNotExist:
             return Response({"detail": "Lead introuvable."}, status=status.HTTP_404_NOT_FOUND)
@@ -453,7 +542,8 @@ def send_message(request):
             status=status.HTTP_502_BAD_GATEWAY,
         )
 
-    wa_id   = meta_response.get("messages", [{}])[0].get("id", f"out_{to_phone}_{body[:8]}")
+    from django.utils import timezone
+    wa_id = meta_response.get("messages", [{}])[0].get("id", f"out_{to_phone}_{body[:8]}")
     message = WhatsAppMessage.objects.create(
         wa_id=wa_id,
         lead=lead,
@@ -462,9 +552,85 @@ def send_message(request):
         is_outbound=True,
         is_read=True,
         delivery_status="sent",
+        timestamp=timezone.now(),
     )
 
     return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def media_download(request, message_id: int):
+    """
+    Récupère l'URL de téléchargement d'un média depuis l'API Meta Graph.
+    L'URL retournée est valide ~5 minutes — elle doit être consommée immédiatement.
+
+    GET /api/whatsapp/media/<message_id>/
+    """
+    try:
+        msg = WhatsAppMessage.objects.get(id=message_id)
+    except WhatsAppMessage.DoesNotExist:
+        return Response({"detail": "Message introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+    if not msg.media_id:
+        return Response({"detail": "Ce message n'a pas de média."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Si on a déjà une URL fraîche (stockée dans la même requête), on la retourne
+    # Sinon on va chercher via l'API Meta
+    import requests as req
+    access_token = getattr(settings, "WHATSAPP_ACCESS_TOKEN", None)
+    if not access_token:
+        return Response(
+            {"detail": "WHATSAPP_ACCESS_TOKEN manquant."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    try:
+        # Étape 1 : récupérer l'URL du média
+        media_info_url = f"https://graph.facebook.com/v25.0/{msg.media_id}"
+        resp = req.get(
+            media_info_url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        media_data = resp.json()
+        download_url = media_data.get("url")
+
+        if not download_url:
+            return Response(
+                {"detail": "URL du média non disponible."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # Sauvegarder l'URL pour référence (elle expire rapidement)
+        WhatsAppMessage.objects.filter(id=message_id).update(media_url=download_url)
+
+        return _no_cache(Response({
+            "media_url": download_url,
+            "media_mime_type": msg.media_mime_type,
+            "media_filename": msg.media_filename,
+            "media_id": msg.media_id,
+        }))
+
+    except req.HTTPError as exc:
+        logger.error(
+            "Erreur API Meta lors du téléchargement média | media_id=%s | error=%s",
+            msg.media_id, exc,
+        )
+        return Response(
+            {"detail": "Erreur API Meta.", "error": str(exc)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Erreur inattendue téléchargement média | media_id=%s | error=%s",
+            msg.media_id, exc,
+        )
+        return Response(
+            {"detail": "Erreur serveur.", "error": str(exc)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @api_view(["POST"])
@@ -510,11 +676,7 @@ def agent_settings_lead(request, lead_id: int):
     conv_settings.agent_enabled = serializer.validated_data["agent_enabled"]
     conv_settings.save(update_fields=["agent_enabled", "updated_at"])
 
-    logger.info(
-        "Toggle agent | lead_id=%s | agent_enabled=%s",
-        lead_id, conv_settings.agent_enabled,
-    )
-
+    logger.info("Toggle agent | lead_id=%s | agent_enabled=%s", lead_id, conv_settings.agent_enabled)
     return Response({"agent_enabled": conv_settings.agent_enabled})
 
 
@@ -533,9 +695,5 @@ def agent_settings_unknown(request, phone: str):
     conv_settings.agent_enabled = serializer.validated_data["agent_enabled"]
     conv_settings.save(update_fields=["agent_enabled", "updated_at"])
 
-    logger.info(
-        "Toggle agent (inconnu) | phone=%s | agent_enabled=%s",
-        phone, conv_settings.agent_enabled,
-    )
-
+    logger.info("Toggle agent (inconnu) | phone=%s | agent_enabled=%s", phone, conv_settings.agent_enabled)
     return Response({"agent_enabled": conv_settings.agent_enabled})

@@ -10,6 +10,7 @@ from .views import (
     mark_as_read_unknown,
     agent_settings_lead,
     agent_settings_unknown,
+    media_download,
 )
 
 urlpatterns = [
@@ -48,4 +49,8 @@ urlpatterns = [
     # Envoi manuel
     path("send/",
          send_message, name="whatsapp_send"),
+
+    # Téléchargement média (images, audio, vidéo, documents)
+    path("media/<int:message_id>/",
+         media_download, name="whatsapp_media_download"),
 ]

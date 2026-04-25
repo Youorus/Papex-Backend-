@@ -14,9 +14,42 @@ class WhatsAppMessage(models.Model):
     )
 
     sender_phone = models.CharField(max_length=30, db_index=True)
-    body = models.TextField()
+    body = models.TextField(blank=True, default="")
     is_outbound = models.BooleanField(default=False)
     is_read = models.BooleanField(default=False)
+
+    # ── Pièces jointes ────────────────────────────────────────────────────────
+    # Le media_id est l'identifiant Meta pour télécharger le média via l'API.
+    # media_url est l'URL signée (durée de vie limitée ~5 min) récupérée après coup.
+    # media_mime_type stocke le vrai MIME type renvoyé par Meta (image/jpeg, audio/ogg, etc.)
+    media_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="ID Meta du média (utilisé pour télécharger via l'API Graph)",
+    )
+    media_url = models.TextField(
+        blank=True,
+        null=True,
+        help_text="URL signée du média (valide ~5 min après récupération)",
+    )
+    media_mime_type = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="MIME type du média (image/jpeg, audio/ogg;codecs=opus, video/mp4, etc.)",
+    )
+    media_caption = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Légende optionnelle accompagnant le média",
+    )
+    media_filename = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Nom de fichier original (pour les documents)",
+    )
 
     delivery_status = models.CharField(
         max_length=20,
@@ -30,16 +63,48 @@ class WhatsAppMessage(models.Model):
         ],
     )
 
-    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    # Timestamp réel du message selon Meta (peut différer de created_at)
+    # null=True permet la migration sur les lignes existantes ; le save() renseigne toujours la valeur.
+    timestamp = models.DateTimeField(
+        db_index=True,
+        null=True,
+        blank=True,
+        help_text="Timestamp réel du message (fourni par Meta ou auto au moment de la création)",
+    )
+    # created_at : null=True uniquement pour la migration, toujours renseigné en pratique
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
 
     class Meta:
         app_label = "whatsapp"
         ordering = ["timestamp"]
 
+    def save(self, *args, **kwargs):
+        # Si timestamp non défini (ex: message sortant créé manuellement), on met l'heure actuelle
+        if not self.timestamp:
+            from django.utils import timezone
+            self.timestamp = timezone.now()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         direction = "→" if self.is_outbound else "←"
         lead_name = f"{self.lead.first_name} {self.lead.last_name}" if self.lead else self.sender_phone
         return f"{direction} {lead_name}: {self.body[:40]}"
+
+    @property
+    def message_type(self) -> str:
+        """Retourne le type de message : 'text', 'image', 'audio', 'video', 'document', 'sticker'"""
+        if not self.media_id:
+            return "text"
+        if self.media_mime_type:
+            if self.media_mime_type.startswith("image/"):
+                return "image"
+            if self.media_mime_type.startswith("audio/"):
+                return "audio"
+            if self.media_mime_type.startswith("video/"):
+                return "video"
+            if self.media_mime_type == "application/pdf" or "document" in self.media_mime_type:
+                return "document"
+        return "document"
 
 
 class WhatsAppConversationSettings(models.Model):
@@ -53,7 +118,6 @@ class WhatsAppConversationSettings(models.Model):
     agent_enabled = False → mode manuel, un humain prend la main
     """
 
-    # Conversation liée à un lead connu
     lead = models.OneToOneField(
         Lead,
         on_delete=models.CASCADE,
@@ -62,7 +126,6 @@ class WhatsAppConversationSettings(models.Model):
         blank=True,
     )
 
-    # Conversation inconnue (pas encore de lead)
     sender_phone = models.CharField(
         max_length=30,
         db_index=True,
@@ -82,7 +145,6 @@ class WhatsAppConversationSettings(models.Model):
         app_label = "whatsapp"
         verbose_name = "Paramètres conversation WhatsApp"
         verbose_name_plural = "Paramètres conversations WhatsApp"
-        # Contrainte : soit lead soit phone, jamais les deux
         constraints = [
             models.UniqueConstraint(
                 fields=["sender_phone"],
@@ -98,13 +160,11 @@ class WhatsAppConversationSettings(models.Model):
 
     @classmethod
     def get_for_lead(cls, lead) -> "WhatsAppConversationSettings":
-        """Récupère ou crée les settings pour un lead connu."""
         obj, _ = cls.objects.get_or_create(lead=lead, defaults={"agent_enabled": True})
         return obj
 
     @classmethod
     def get_for_phone(cls, phone: str) -> "WhatsAppConversationSettings":
-        """Récupère ou crée les settings pour un inconnu."""
         obj, _ = cls.objects.get_or_create(
             lead__isnull=True,
             sender_phone=phone,
@@ -114,7 +174,6 @@ class WhatsAppConversationSettings(models.Model):
 
     @classmethod
     def is_agent_enabled(cls, lead=None, phone: str = None) -> bool:
-        """Raccourci : retourne True si l'agent est actif pour cette conversation."""
         try:
             if lead:
                 return cls.objects.get(lead=lead).agent_enabled
@@ -122,5 +181,4 @@ class WhatsAppConversationSettings(models.Model):
                 return cls.objects.get(lead__isnull=True, sender_phone=phone).agent_enabled
         except cls.DoesNotExist:
             pass
-        # Par défaut : actif
         return True

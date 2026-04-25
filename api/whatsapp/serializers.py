@@ -4,6 +4,8 @@ from api.leads.models import Lead
 
 
 class WhatsAppMessageSerializer(serializers.ModelSerializer):
+    message_type = serializers.ReadOnlyField()
+
     class Meta:
         model = WhatsAppMessage
         fields = [
@@ -15,13 +17,21 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
             "delivery_status",
             "timestamp",
             "sender_phone",
+            # Médias
+            "message_type",
+            "media_id",
+            "media_url",
+            "media_mime_type",
+            "media_caption",
+            "media_filename",
         ]
-        read_only_fields = ["id", "wa_id", "timestamp", "sender_phone", "delivery_status"]
+        read_only_fields = [
+            "id", "wa_id", "timestamp", "sender_phone",
+            "delivery_status", "message_type",
+        ]
 
 
 class AgentSettingsSerializer(serializers.ModelSerializer):
-    """Sérialise l'état agent_enabled d'une conversation."""
-
     class Meta:
         model = WhatsAppConversationSettings
         fields = ["agent_enabled", "updated_at"]
@@ -61,7 +71,7 @@ class ConversationPreviewSerializer(serializers.ModelSerializer):
         try:
             return obj.whatsapp_settings.agent_enabled
         except WhatsAppConversationSettings.DoesNotExist:
-            return True  # Actif par défaut
+            return True
 
 
 class UnknownConversationSerializer(serializers.Serializer):
@@ -88,5 +98,9 @@ class SendMessageSerializer(serializers.Serializer):
 
 
 class ToggleAgentSerializer(serializers.Serializer):
-    """Payload pour activer/désactiver l'agent sur une conversation."""
     agent_enabled = serializers.BooleanField()
+
+
+class MediaDownloadSerializer(serializers.Serializer):
+    """Payload pour demander l'URL de téléchargement d'un média."""
+    media_id = serializers.CharField()
