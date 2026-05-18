@@ -1,90 +1,46 @@
 import os
-import sys
 import django
-from django.conf import settings
-from django.core.mail import send_mail
+from decimal import Decimal
 
-from dotenv import load_dotenv
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "papex.settings.prod")
+django.setup()
 
-# 1. Charger les variables d'environnement
-print("--- 🔍 Debug: Chargement du .env ---")
-load_dotenv()
+from api.services.models import Service
+from api.services.utils import code_from_label
 
-# Vérification immédiate des variables critiques
-host = os.getenv("EMAIL_HOST")
-user = os.getenv("EMAIL_HOST_USER")
-pwd = os.getenv("EMAIL_HOST_PASSWORD")
 
-print(f"HOST récupéré: {host}")
-print(f"USER récupéré: {user}")
-print(f"PASSWORD récupéré: {'********' if pwd else 'VIDE'}")
+SERVICES = [
+    ("Changement de statut", "990.00"),
+    ("Autorisation de travail", "990.00"),
+]
 
-if not host or not user or not pwd:
-    print("❌ Erreur : Variables SMTP manquantes dans le .env")
-    sys.exit(1)
+def run():
+    created_count = 0
+    updated_count = 0
 
-# 2. Configurer Django de manière minimale
-if not settings.configured:
-    try:
-        settings.configure(
-            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
-            EMAIL_HOST=host,
-            EMAIL_PORT=int(os.getenv("EMAIL_PORT", "587")),
-            EMAIL_USE_TLS=os.getenv("EMAIL_USE_TLS", "true").lower() in ("true", "1"),
-            EMAIL_HOST_USER=user,
-            EMAIL_HOST_PASSWORD=pwd,
-            DEFAULT_FROM_EMAIL=os.getenv("DEFAULT_FROM_EMAIL", user),
+    for label, price in SERVICES:
+        code = code_from_label(label)
+
+        service, created = Service.objects.update_or_create(
+            code=code,
+            defaults={
+                "label": label,
+                "price": Decimal(price),
+            },
         )
-        django.setup()
-        print("✅ Django configuré pour le test.")
-    except Exception as e:
-        print(f"❌ Erreur lors de la configuration de Django : {e}")
-        sys.exit(1)
 
+        if created:
+            created_count += 1
+            print(f"✅ Créé : {service.label} ({service.price} €)")
+        else:
+            updated_count += 1
+            print(f"🔄 Mis à jour : {service.label} ({service.price} €)")
 
-def test_smtp_connection():
-    subject = "🚀 Test SMTP Papex"
-    message = "Si tu reçois cet email, c'est que la configuration SMTP fonctionne parfaitement !"
-    recipient = user
-
-    print(f"\n--- 🛰️ Tentative d'envoi via {settings.EMAIL_HOST}:{settings.EMAIL_PORT} ---")
-    print(f"Utilisateur : {settings.EMAIL_HOST_USER}")
-    print(f"Depuis: {settings.DEFAULT_FROM_EMAIL}")
-    print(f"Vers: {recipient}")
-
-    try:
-        # On utilise le gestionnaire de connexion pour tester l'authentification explicitement
-        from django.core.mail import get_connection
-        connection = get_connection()
-        print("Connexion au serveur SMTP...")
-        connection.open()
-        print("✅ Connexion établie et authentifiée !")
-
-        print("Envoi de l'email de test...")
-        send_mail(
-            subject,
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [recipient],
-            connection=connection,
-            fail_silently=False,
-        )
-        connection.close()
-        print("\n🎉 SUCCÈS ! L'email a été envoyé.")
-
-    except Exception as e:
-        print(f"\n❌ ERREUR SMTP :")
-        print(f"Type: {type(e).__name__}")
-        print(f"Message: {str(e)}")
-
-        if "535" in str(e) or "authentication failed" in str(e).lower():
-            print("\n👉 Diagnostic : Erreur d'authentification.")
-            print(
-                "Vérifiez que vous utilisez un 'Mot de passe d'application' (16 caractères) et non votre mot de passe Gmail habituel.")
-        elif "timeout" in str(e).lower():
-            print(
-                "\n👉 Diagnostic : Connexion expirée. Vérifiez que votre réseau ou votre pare-feu autorise le port 587.")
+    print("----------")
+    print(f"✅ Créés : {created_count}")
+    print(f"🔄 Mis à jour : {updated_count}")
+    print(f"📦 Total : {Service.objects.count()}")
 
 
 if __name__ == "__main__":
-    test_smtp_connection()
+    run()
