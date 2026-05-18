@@ -12,3 +12,4 @@ class UserRoles(models.TextChoices):
     JURISTE = "JURISTE", _("Juriste")
     CONSEILLER = "CONSEILLER", _("Conseiller")
     AVOCAT = "AVOCAT", _("Avocat")
+    CREATOR = "CREATOR", _("Créateur")

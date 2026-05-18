@@ -53,6 +53,7 @@ LOCAL_APPS = [
     "api.clients",
     "api.comments",
     "api.contracts",
+    "api.creators",
     "api.documents",
     "api.lead_status",
     "api.leads",

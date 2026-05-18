@@ -17,7 +17,8 @@ api_urlpatterns = [
     path("receipts/", include("api.payments.urls")),
     # Services - liste des services (ex: titre de séjour, naturalisation, etc)
     path("services/", include("api.services.urls")),
-
+    # Créateurs - gestion des créateurs de contenu
+    path("", include("api.creators.urls")),
     path("opening-hours/", include("api.opening_hours.urls")),
     path("special-closing-periods/", include("api.special_closing_period.urls")),
     path("specialclosing/", include("api.special_closing_period.urls")),
