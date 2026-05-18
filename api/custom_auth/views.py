@@ -1,8 +1,8 @@
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.middleware.csrf import get_token
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.utils.decorators import method_decorator
-
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -11,6 +11,25 @@ from django.contrib.auth.models import update_last_login
 
 logger = __import__("logging").getLogger(__name__)
 User = get_user_model()
+
+
+def get_cookie_settings():
+    """
+    Centralise la configuration des cookies pour la compatibilité prod/local.
+    """
+    if settings.DEBUG:
+        return {
+            "domain": None,  # Le navigateur utilisera le domaine actuel (localhost)
+            "secure": False, # Autorise les cookies sur HTTP en local
+            "samesite": "Lax",
+        }
+    else:
+        # Requis pour l'auth cross-subdomain (api.papiers-express.fr -> creator.papiers-express.fr)
+        return {
+            "domain": ".papiers-express.fr",
+            "secure": True, # N'envoie les cookies que sur HTTPS
+            "samesite": "None",
+        }
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
@@ -59,12 +78,15 @@ class LoginView(APIView):
             status=status.HTTP_200_OK,
         )
 
+        cookie_settings = get_cookie_settings()
+
         response.set_cookie(
             "csrftoken",
             get_token(request),
             httponly=False,
-            secure=not __import__("django.conf").conf.settings.DEBUG,
-            samesite="Lax",
+            secure=cookie_settings["secure"],
+            samesite=cookie_settings["samesite"],
+            domain=cookie_settings["domain"],
             path="/",
         )
 
@@ -72,8 +94,9 @@ class LoginView(APIView):
             "user_role",
             getattr(user, "role", ""),
             httponly=False,
-            secure=not __import__("django.conf").conf.settings.DEBUG,
-            samesite="Lax",
+            secure=cookie_settings["secure"],
+            samesite=cookie_settings["samesite"],
+            domain=cookie_settings["domain"],
             path="/",
         )
 
@@ -91,9 +114,13 @@ class LogoutView(APIView):
             status=status.HTTP_200_OK,
         )
 
-        response.delete_cookie("sessionid", path="/")
-        response.delete_cookie("csrftoken", path="/")
-        response.delete_cookie("user_role", path="/")
+        cookie_settings = get_cookie_settings()
+        cookie_domain = cookie_settings["domain"]
+
+        # Pour supprimer un cookie, il faut spécifier le même domain et path
+        response.delete_cookie("sessionid", domain=cookie_domain, path="/")
+        response.delete_cookie("csrftoken", domain=cookie_domain, path="/")
+        response.delete_cookie("user_role", domain=cookie_domain, path="/")
 
         return response
 

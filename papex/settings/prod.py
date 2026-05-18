@@ -330,32 +330,48 @@ WKHTMLTOPDF_PATH = os.getenv("WKHTMLTOPDF_PATH")
 # -----------------------------------------------------------------------------
 # SECURITY HEADERS / COOKIES
 # -----------------------------------------------------------------------------
-COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN")
-
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
-# WhatsApp Meta Cloud API
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-WHATSAPP_ACCESS_TOKEN    = os.getenv("WHATSAPP_ACCESS_TOKEN")
-WHATSAPP_VERIFY_TOKEN    = os.getenv("WHATSAPP_VERIFY_TOKEN", "papex_secret_2026")
+# --- Configuration dynamique des cookies (Prod vs Local) ---
+# En production (DEBUG=False):
+# - secure=True: Les cookies ne sont envoyés que via HTTPS.
+# - samesite='None': Permet l'envoi de cookies pour les requêtes cross-domain (API sur un sous-domaine différent).
+# - domain: '.papiers-express.fr' pour que le cookie soit partagé entre tous les sous-domaines.
+#
+# En local (DEBUG=True):
+# - secure=False: Permet les cookies sur HTTP.
+# - samesite='Lax': Le standard pour le développement local, plus sécurisé.
+# - domain: None, le navigateur utilisera le domaine courant (localhost).
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
-SESSION_COOKIE_SECURE = True
-SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_HTTPONLY = True  # Le sessionid ne doit pas être accessible en JS
+CSRF_COOKIE_HTTPONLY = False    # Le csrftoken DOIT être accessible en JS (pour axios)
+
+SESSION_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
+CSRF_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
+
+# Le COOKIE_DOMAIN est lu depuis le .env, mais on le fallback à None en local
+# si la variable n'est pas définie.
+COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN") if not DEBUG else None
 SESSION_COOKIE_DOMAIN = COOKIE_DOMAIN
+CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
+
 SESSION_COOKIE_PATH = "/"
-SESSION_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_PATH = "/"
+
 SESSION_COOKIE_AGE = 60 * 60 * 8  # 8 heures
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
-CSRF_COOKIE_SECURE = True
-CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_DOMAIN = COOKIE_DOMAIN
-CSRF_COOKIE_PATH = "/"
-CSRF_COOKIE_SAMESITE = "None"
+
+# WhatsApp Meta Cloud API
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+WHATSAPP_ACCESS_TOKEN    = os.getenv("WHATSAPP_ACCESS_TOKEN")
+WHATSAPP_VERIFY_TOKEN    = os.getenv("WHATSAPP_VERIFY_TOKEN", "papex_secret_2026")
 
 SECURE_SSL_REDIRECT = False
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
