@@ -13,7 +13,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 ENV = os.getenv("ENV", "production")
-DEBUG = True
+DEBUG = ENV == "development"
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me")
 DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO").upper()
