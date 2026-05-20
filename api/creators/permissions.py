@@ -30,5 +30,5 @@ class IsAdminOrStaff(BasePermission):
 
         return bool(
             getattr(user, "is_superuser", False)
-            or getattr(user, "role", None) == UserRoles.ADMIN
+            or getattr(user, "role", None) == UserRoles.ACCUEIL
         )

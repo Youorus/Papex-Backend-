@@ -8,6 +8,10 @@ from pathlib import Path
 import django
 
 
+# ==========================================================
+# ⚙️ CONFIG DJANGO
+# ==========================================================
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
@@ -17,21 +21,50 @@ django.setup()
 from api.creators.models import SocialAccountLead  # noqa: E402
 
 
-CSV_FILE = Path("/Users/marc./PycharmProjects/Papex-helper/tiktok_ci_20260518_0956.csv")
+# ==========================================================
+# 📁 CONFIG IMPORT
+# ==========================================================
+
+CSV_FILE = Path("/Users/marc./PycharmProjects/Papex-helper/influenceurs_ci.csv")
 
 
-def clean_text(value: str | None) -> str:
-    return (value or "").strip()
+# ==========================================================
+# 🧰 HELPERS
+# ==========================================================
+
+def clean_text(value) -> str:
+    if value is None:
+        return ""
+
+    value = str(value).strip()
+
+    if value.lower() in {"nan", "none", "null"}:
+        return ""
+
+    return value
 
 
-def normalize_username(value: str | None) -> str:
+def normalize_username(value) -> str:
     return clean_text(value).lstrip("@").strip()
 
 
 def to_int(value) -> int:
     try:
-        raw = str(value or "0").replace(",", "").replace(" ", "").strip()
+        raw = clean_text(value).replace(",", "").replace(" ", "")
+
+        if not raw:
+            return 0
+
+        upper = raw.upper()
+
+        if upper.endswith("K"):
+            return int(float(upper[:-1]) * 1_000)
+
+        if upper.endswith("M"):
+            return int(float(upper[:-1]) * 1_000_000)
+
         return int(float(raw))
+
     except (TypeError, ValueError):
         return 0
 
@@ -43,19 +76,36 @@ def normalize_raw_data(row: dict) -> dict:
 def build_notes(row: dict) -> str:
     notes_parts = []
 
-    source = clean_text(row.get("sources"))
-    if source:
-        notes_parts.append(f"Source scraping : {source}")
+    mapping = {
+        "date_collecte": "Date de collecte",
+        "followers_raw": "Followers brut",
+        "likes": "Likes",
+        "likes_raw": "Likes brut",
+        "videos": "Nombre de vidéos",
+        "region": "Région",
+        "country_score": "Score pays",
+        "source_videos": "Vidéos sources",
+        "score_engagement": "Score engagement",
+    }
+
+    for key, label in mapping.items():
+        value = clean_text(row.get(key))
+        if value:
+            notes_parts.append(f"{label} : {value}")
 
     return "\n".join(notes_parts)
 
+
+# ==========================================================
+# 🚀 IMPORT
+# ==========================================================
 
 def run() -> None:
     if not CSV_FILE.exists():
         print(f"❌ Fichier CSV introuvable : {CSV_FILE}")
         return
 
-    print("🚀 Import des comptes sociaux TikTok")
+    print("🚀 Import des influenceurs Côte d’Ivoire")
     print(f"📄 Fichier : {CSV_FILE}")
 
     created_count = 0
@@ -75,7 +125,7 @@ def run() -> None:
                 continue
 
             try:
-                lead, created = SocialAccountLead.objects.update_or_create(
+                _, created = SocialAccountLead.objects.update_or_create(
                     platform=SocialAccountLead.Platform.TIKTOK,
                     username=username,
                     defaults={
@@ -83,10 +133,14 @@ def run() -> None:
                         "profile_url": clean_text(row.get("url")) or None,
                         "followers_count": to_int(row.get("followers")),
                         "bio": clean_text(row.get("bio")) or None,
-                        "country": clean_text(row.get("pays")) or None,
+                        "country": "Côte d'Ivoire",
                         "language": clean_text(row.get("langue")) or None,
-                        "categories": clean_text(row.get("categories")) or None,
-                        "source": clean_text(row.get("sources")) or "import_csv",
+                        "categories": (
+                            clean_text(row.get("categories_detectees"))
+                            or clean_text(row.get("source"))
+                            or None
+                        ),
+                        "source": clean_text(row.get("source")) or "import_influenceurs_ci",
                         "is_viable": True,
                         "contact_status": SocialAccountLead.ContactStatus.NEW,
                         "raw_data": normalize_raw_data(row),
