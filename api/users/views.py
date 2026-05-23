@@ -21,7 +21,7 @@ class UserViewSet(viewsets.ModelViewSet):
     - Changement de mot de passe
     """
 
-    queryset = User.objects.all()
+    queryset = User.objects.filter(is_active=True)
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None  # À adapter si pagination requise

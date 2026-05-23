@@ -35,7 +35,7 @@ from api.utils.email.leads.tasks import (
 logger = logging.getLogger(__name__)
 
 # ⚙️ Adresse email du rapport journalier — modifie ici
-RAPPORT_EMAIL = "marc.takoumba@papiers-express.fr"
+RAPPORT_EMAIL = "themenain.bamba@papiers-express.fr"
 
 
 # =========================================================
