@@ -46,7 +46,7 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_superuser or getattr(user, "role", None) == "ACCUEIL":
+        if user.is_superuser or getattr(user, "role", None) == UserRoles.ACCUEIL:
             return super().get_queryset()
         return super().get_queryset().filter(user=user)
 
@@ -240,7 +240,7 @@ class PromoCodeViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = super().get_queryset()
 
-        if user.is_superuser or getattr(user, "role", None) == "ACCUEIL":
+        if user.is_superuser or getattr(user, "role", None) == UserRoles.ACCUEIL:
             if self.action == "list":
                 return queryset.select_related("creator", "creator__user")
             return queryset
@@ -262,7 +262,7 @@ class CreatorContractViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = super().get_queryset()
 
-        if user.is_superuser or getattr(user, "role", None) == "ACCUEIL":
+        if user.is_superuser or getattr(user, "role", None) == UserRoles.ACCUEIL:
             return queryset
 
         return queryset.filter(creator__user=user)
