@@ -4,14 +4,6 @@ from api.creators.models import CreatorProfile, SocialAccountLead
 
 
 class CreatorProfileFilter(django_filters.FilterSet):
-    commission_rate_min = django_filters.NumberFilter(
-        field_name="commission_rate",
-        lookup_expr="gte",
-    )
-    commission_rate_max = django_filters.NumberFilter(
-        field_name="commission_rate",
-        lookup_expr="lte",
-    )
     created_at_after = django_filters.DateTimeFilter(
         field_name="created_at",
         lookup_expr="gte",
@@ -30,8 +22,6 @@ class CreatorProfileFilter(django_filters.FilterSet):
             "status",
             "country",
             "city",
-            "commission_rate_min",
-            "commission_rate_max",
             "created_at_after",
             "created_at_before",
             "is_active",
