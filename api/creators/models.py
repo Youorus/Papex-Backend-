@@ -3,6 +3,12 @@ from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from api.storage_backends import MinioCreatorContractStorage
+
+
+def creator_contract_path(instance, filename):
+    return f"creator_{instance.creator.id}/{filename}"
+
 
 class CreatorProfile(models.Model):
     class Status(models.TextChoices):
@@ -24,11 +30,11 @@ class CreatorProfile(models.Model):
         max_length=100, blank=True, null=True, verbose_name=_("Pays")
     )
     city = models.CharField(max_length=100, blank=True, null=True, verbose_name=_("Ville"))
-    promo_code = models.CharField(
-        max_length=50,
-        unique=True,
-        db_index=True,
-        verbose_name=_("Code promotionnel"),
+    currency = models.CharField(
+        max_length=3,
+        default="EUR",
+        verbose_name=_("Devise (Code ISO)"),
+        help_text=_("Ex: EUR, USD, XOF, etc.")
     )
     status = models.CharField(
         max_length=20,
@@ -36,12 +42,6 @@ class CreatorProfile(models.Model):
         default=Status.PENDING,
         db_index=True,
         verbose_name=_("Statut"),
-    )
-    commission_rate = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=10.00,
-        verbose_name=_("Taux de commission"),
     )
     notes = models.TextField(blank=True, null=True, verbose_name=_("Notes"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Créé le"))
@@ -53,13 +53,102 @@ class CreatorProfile(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["status"]),
-            models.Index(fields=["promo_code"]),
             models.Index(fields=["created_at"]),
         ]
 
     def __str__(self):
-        return f"{self.user.get_full_name()} ({self.promo_code})"
+        return self.user.get_full_name() or self.user.email
 
+
+class PromoCode(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE", _("Actif")
+        INACTIVE = "INACTIVE", _("Inactif")
+        EXPIRED = "EXPIRED", _("Expiré")
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+        verbose_name=_("Code"),
+    )
+    creator = models.ForeignKey(
+        CreatorProfile,
+        on_delete=models.CASCADE,
+        related_name="promo_codes",
+        verbose_name=_("Créateur"),
+    )
+    commission_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=10.00,
+        verbose_name=_("Taux de commission"),
+    )
+    bonus_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        verbose_name=_("Montant du bonus"),
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        db_index=True,
+        verbose_name=_("Statut"),
+    )
+    description = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name=_("Description"),
+    )
+    valid_until = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_("Valide jusqu'au"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Créé le"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Mis à jour le"))
+
+    class Meta:
+        verbose_name = _("Code Promo")
+        verbose_name_plural = _("Codes Promo")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["code"]),
+            models.Index(fields=["creator"]),
+        ]
+
+    def __str__(self):
+        return f"{self.code} ({self.creator.user.get_full_name()})"
+
+
+class CreatorContract(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=255, verbose_name=_("Titre du contrat"))
+    file = models.FileField(
+        upload_to=creator_contract_path,
+        storage=MinioCreatorContractStorage(),
+        verbose_name=_("Fichier"),
+    )
+    creator = models.ForeignKey(
+        CreatorProfile,
+        on_delete=models.CASCADE,
+        related_name="contracts",
+        verbose_name=_("Créateur"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Créé le"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Mis à jour le"))
+
+    class Meta:
+        verbose_name = _("Contrat Créateur")
+        verbose_name_plural = _("Contrats Créateurs")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.title} - {self.creator.user.get_full_name()}"
 
 class SocialAccountLead(models.Model):
     class Platform(models.TextChoices):

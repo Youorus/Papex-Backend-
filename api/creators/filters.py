@@ -101,3 +101,24 @@ class SocialAccountLeadFilter(django_filters.FilterSet):
             "categories",
             "source",
         ]
+
+
+class CreatorKpiFilter(django_filters.FilterSet):
+    leads_date_range = django_filters.DateFromToRangeFilter(
+        field_name="leads__created_at",
+        label="Date range for leads",
+    )
+    creator = django_filters.ModelMultipleChoiceFilter(
+        queryset=CreatorProfile.objects.all(),
+        field_name="id",
+        to_field_name="id",
+        label="Creator(s)",
+    )
+    status = django_filters.ChoiceFilter(
+        choices=CreatorProfile.Status.choices,
+        label="Creator status",
+    )
+
+    class Meta:
+        model = CreatorProfile
+        fields = ["leads_date_range", "creator", "status"]

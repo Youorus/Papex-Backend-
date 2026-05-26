@@ -4,6 +4,7 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from api.clients.serializers import ClientSerializer
+from api.creators.models import PromoCode
 from api.lead_status.models import LeadStatus
 from api.lead_status.serializer import LeadStatusSerializer
 from api.leads.constants import (
@@ -124,6 +125,13 @@ class LeadSerializer(serializers.ModelSerializer):
     # WRITE IDS
     # =====================
 
+    promo_code = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text=_("Code promotionnel d'un créateur"),
+    )
+
     status_id = serializers.PrimaryKeyRelatedField(
         queryset=LeadStatus.objects.all(),
         source="status",
@@ -222,12 +230,34 @@ class LeadSerializer(serializers.ModelSerializer):
 
             "source",
             "source_display",
+            "promo_code",
         ]
 
         extra_kwargs = {
             "email": {"required": False, "allow_null": True, "allow_blank": True},
             "created_at": {"read_only": True},
         }
+
+    # =====================
+    # LIFECYCLE
+    # =====================
+
+    def create(self, validated_data):
+        promo_code_str = validated_data.pop('promo_code', None)
+
+        if promo_code_str:
+            try:
+                promo_code_obj = PromoCode.objects.select_related('creator').get(
+                    code__iexact=promo_code_str,
+                    status=PromoCode.Status.ACTIVE
+                )
+                validated_data['promo_code'] = promo_code_obj
+                validated_data['creator_profile'] = promo_code_obj.creator
+            except PromoCode.DoesNotExist:
+                raise serializers.ValidationError({"promo_code": _("Code promotionnel invalide ou inactif.")})
+
+        lead = Lead.objects.create(**validated_data)
+        return lead
 
     # =====================
     # METHODS

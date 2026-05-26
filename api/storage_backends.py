@@ -36,3 +36,9 @@ class MinioCandidateCVStorage(S3Boto3Storage):
     bucket_name = config("BUCKET_CV", default="candidate-cv")
     location = ""
     file_overwrite = False
+
+
+class MinioCreatorContractStorage(S3Boto3Storage):
+    bucket_name = config("BUCKET_CREATOR_CONTRACTS", default="creator-contracts")
+    location = ""
+    file_overwrite = False

@@ -1,26 +1,28 @@
-from django.db.models import Count
+from django.db.models import Count, Sum, F, ExpressionWrapper, DecimalField, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
-from api.creators.filters import CreatorProfileFilter, SocialAccountLeadFilter
-from api.creators.models import CreatorProfile, SocialAccountLead
+from api.contracts.models import Contract
+from api.creators.filters import CreatorProfileFilter, SocialAccountLeadFilter, CreatorKpiFilter
+from api.creators.models import CreatorProfile, SocialAccountLead, PromoCode
 from api.creators.pagination import StandardResultsSetPagination
-from api.creators.permissions import IsAdminOrStaff
+from api.creators.permissions import IsAdminOrStaff, IsAdminOrCreator
 from api.creators.serializers import (
     CreatorProfileCreateSerializer,
     CreatorProfileSerializer,
     CreatorProfileUpdateSerializer,
     SocialAccountLeadCreateUpdateSerializer,
-    SocialAccountLeadSerializer,
+    SocialAccountLeadSerializer, CreatorKpiSerializer, PromoCodeSerializer, CreatorAggregateKpiSerializer,
+    CreatorContractSerializer,
 )
 
 
 class CreatorProfileViewSet(viewsets.ModelViewSet):
     queryset = CreatorProfile.objects.select_related("user").all()
-    permission_classes = [IsAdminOrStaff]
+    permission_classes = [IsAdminOrCreator]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = CreatorProfileFilter
     pagination_class = StandardResultsSetPagination
@@ -29,7 +31,6 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
         "user__email",
         "user__first_name",
         "user__last_name",
-        "promo_code",
         "phone_number",
         "country",
         "city",
@@ -38,12 +39,16 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
     ordering_fields = [
         "created_at",
         "updated_at",
-        "commission_rate",
-        "promo_code",
         "user__email",
     ]
 
     ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser or getattr(user, "role", None) == "ACCUEIL":
+            return super().get_queryset()
+        return super().get_queryset().filter(user=user)
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -54,7 +59,19 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
 
         return CreatorProfileSerializer
 
-    @action(detail=False, methods=["get"], url_path="stats")
+    @action(detail=False, methods=["get"])
+    def me(self, request):
+        """
+        Récupère le profil du créateur connecté.
+        """
+        try:
+            creator = request.user.creator_profile
+            serializer = self.get_serializer(creator)
+            return Response(serializer.data)
+        except CreatorProfile.DoesNotExist:
+            return Response({"detail": "Aucun profil créateur trouvé."}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=["get"], url_path="stats", permission_classes=[IsAdminOrStaff])
     def stats(self, request):
         queryset = self.filter_queryset(self.get_queryset())
 
@@ -69,6 +86,191 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
                 ).count(),
             }
         )
+
+    @action(detail=True, methods=["get"], url_path="kpis")
+    def kpis(self, request, pk=None):
+        creator = self.get_object()
+
+        start_date_str = request.query_params.get("start_date")
+        end_date_str = request.query_params.get("end_date")
+
+        leads_queryset = creator.leads.all()
+        contracts_queryset = Contract.objects.filter(client__lead__creator_profile=creator, is_cancelled=False)
+
+        try:
+            if start_date_str:
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                leads_queryset = leads_queryset.filter(created_at__date__gte=start_date)
+                contracts_queryset = contracts_queryset.filter(created_at__date__gte=start_date)
+
+            if end_date_str:
+                end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                leads_queryset = leads_queryset.filter(created_at__date__lte=end_date)
+                contracts_queryset = contracts_queryset.filter(created_at__date__lte=end_date)
+
+        except ValueError:
+            return Response(
+                {"error": "Invalid date format. Please use YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        total_leads = leads_queryset.count()
+        total_contracts = contracts_queryset.count()
+
+        total_revenue = contracts_queryset.aggregate(total=Sum('amount_due'))['total'] or Decimal("0.00")
+        total_commissions = Decimal("0.00")
+
+        if total_contracts > 0:
+            for contract in contracts_queryset.select_related('client__lead__promo_code'):
+                real_amount = contract.real_amount
+                promo_code = contract.client.lead.promo_code
+                if promo_code:
+                    commission_rate = promo_code.commission_rate or Decimal("0.00")
+                    bonus_amount = promo_code.bonus_amount or Decimal("0.00")
+                    total_commissions += (real_amount * commission_rate / Decimal("100.00")) + bonus_amount
+
+        conversion_rate = (total_contracts / total_leads * 100) if total_leads > 0 else 0.0
+
+        data = {
+            "total_leads": total_leads,
+            "total_contracts": total_contracts,
+            "conversion_rate": round(conversion_rate, 2),
+            "total_revenue": total_revenue,
+            "total_commissions": total_commissions.quantize(Decimal('0.01')),
+            "currency": creator.currency,
+        }
+
+        serializer = CreatorKpiSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="aggregate-kpis", permission_classes=[IsAdminOrStaff])
+    def aggregate_kpis(self, request):
+        self.filterset_class = CreatorKpiFilter
+        queryset = self.filter_queryset(self.get_queryset())
+
+        start_date = self.filterset.form.cleaned_data.get("leads_date_range_after")
+        end_date = self.filterset.form.cleaned_data.get("leads_date_range_before")
+
+        contracts_filter = Q(client__lead__promo_code__isnull=False, is_cancelled=False)
+        if start_date:
+            contracts_filter &= Q(created_at__date__gte=start_date)
+        if end_date:
+            contracts_filter &= Q(created_at__date__lte=end_date)
+
+        contracts = Contract.objects.filter(contracts_filter).select_related('client__lead__promo_code__creator__user')
+        
+        creator_kpis = {}
+
+        for contract in contracts:
+            creator = contract.client.lead.promo_code.creator
+            if creator.id not in queryset.values_list('id', flat=True):
+                continue
+
+            if creator.id not in creator_kpis:
+                creator_kpis[creator.id] = {
+                    "creator_id": creator.id,
+                    "creator_full_name": creator.user.get_full_name(),
+                    "creator_currency": creator.currency,
+                    "total_leads": 0,
+                    "total_contracts": 0,
+                    "total_revenue": Decimal("0.00"),
+                    "total_commissions": Decimal("0.00"),
+                }
+            
+            promo_code = contract.client.lead.promo_code
+            real_amount = contract.real_amount
+            commission = (real_amount * promo_code.commission_rate / Decimal("100.00")) + promo_code.bonus_amount
+
+            creator_kpis[creator.id]["total_contracts"] += 1
+            creator_kpis[creator.id]["total_revenue"] += contract.amount_due
+            creator_kpis[creator.id]["total_commissions"] += commission
+
+        leads_filter = Q(creator_profile__in=queryset)
+        if start_date:
+            leads_filter &= Q(created_at__date__gte=start_date)
+        if end_date:
+            leads_filter &= Q(created_at__date__lte=end_date)
+            
+        leads = Lead.objects.filter(leads_filter)
+        leads_per_creator = leads.values('creator_profile').annotate(total=Count('id'))
+
+        for lead_data in leads_per_creator:
+            creator_id = lead_data['creator_profile']
+            if creator_id in creator_kpis:
+                creator_kpis[creator_id]['total_leads'] = lead_data['total']
+
+        for kpi in creator_kpis.values():
+            if kpi['total_leads'] > 0:
+                kpi['conversion_rate'] = round((kpi['total_contracts'] / kpi['total_leads']) * 100, 2)
+            else:
+                kpi['conversion_rate'] = 0.0
+
+        summary = {
+            "total_leads": sum(kpi['total_leads'] for kpi in creator_kpis.values()),
+            "total_contracts": sum(kpi['total_contracts'] for kpi in creator_kpis.values()),
+            "total_revenue": sum(kpi['total_revenue'] for kpi in creator_kpis.values()),
+            "total_commissions": sum(kpi['total_commissions'] for kpi in creator_kpis.values()),
+        }
+
+        if summary['total_leads'] > 0:
+            summary['average_conversion_rate'] = round((summary['total_contracts'] / summary['total_leads']) * 100, 2)
+        else:
+            summary['average_conversion_rate'] = 0.0
+
+        response_data = {
+            "summary": summary,
+            "creators": CreatorAggregateKpiSerializer(creator_kpis.values(), many=True).data,
+        }
+
+        return Response(response_data)
+
+
+class PromoCodeViewSet(viewsets.ModelViewSet):
+    queryset = PromoCode.objects.select_related("creator__user").all()
+    serializer_class = PromoCodeSerializer
+    permission_classes = [IsAdminOrCreator]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    search_fields = ["code", "creator__user__email", "creator__user__first_name"]
+    ordering_fields = ["created_at", "valid_until", "commission_rate", "bonus_amount"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+
+        if user.is_superuser or getattr(user, "role", None) == "ACCUEIL":
+            if self.action == "list":
+                return queryset.select_related("creator", "creator__user")
+            return queryset
+
+        return queryset.filter(creator__user=user)
+
+
+class CreatorContractViewSet(viewsets.ModelViewSet):
+    queryset = CreatorContract.objects.select_related("creator__user").all()
+    serializer_class = CreatorContractSerializer
+    permission_classes = [IsAdminOrCreator]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    search_fields = ["title", "creator__user__email", "creator__user__first_name"]
+    ordering_fields = ["created_at", "title"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+
+        if user.is_superuser or getattr(user, "role", None) == "ACCUEIL":
+            return queryset
+
+        return queryset.filter(creator__user=user)
+
+    def get_permissions(self):
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [IsAdminOrStaff()]
+        return [IsAdminOrCreator()]
 
 
 class SocialAccountLeadViewSet(viewsets.ModelViewSet):

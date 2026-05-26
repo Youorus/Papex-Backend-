@@ -1,23 +1,36 @@
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 
-from api.creators.models import CreatorProfile, SocialAccountLead
+from api.creators.models import CreatorProfile, SocialAccountLead, PromoCode
 
 
 @admin.register(CreatorProfile)
 class CreatorProfileAdmin(admin.ModelAdmin):
     list_display = (
         "user",
-        "promo_code",
         "status",
         "country",
         "city",
-        "commission_rate",
         "created_at",
     )
-    search_fields = ("user__email", "user__first_name", "user__last_name", "promo_code")
+    search_fields = ("user__email", "user__first_name", "user__last_name")
     list_filter = ("status", "country", "created_at")
 
+
+@admin.register(PromoCode)
+class PromoCodeAdmin(admin.ModelAdmin):
+    list_display = (
+        "code",
+        "creator",
+        "status",
+        "commission_rate",
+        "bonus_amount",
+        "valid_until",
+        "created_at",
+    )
+    search_fields = ("code", "creator__user__email", "creator__user__first_name")
+    list_filter = ("status", "created_at", "valid_until")
+    autocomplete_fields = ("creator",)
 
 
 @admin.register(SocialAccountLead)

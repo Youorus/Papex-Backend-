@@ -32,3 +32,28 @@ class IsAdminOrStaff(BasePermission):
             getattr(user, "is_superuser", False)
             or getattr(user, "role", None) == UserRoles.ACCUEIL
         )
+
+
+class IsAdminOrCreator(BasePermission):
+    """
+    Autorise l'accès aux administrateurs OU au créateur lui-même.
+    """
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated
+
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        
+        # Admin / Staff
+        if user.is_superuser or getattr(user, "role", None) == UserRoles.ACCUEIL:
+            return True
+            
+        # Creator checking their own profile
+        if isinstance(obj, CreatorProfile):
+            return obj.user == user
+            
+        # Creator checking their own PromoCode
+        if hasattr(obj, 'creator'):
+            return obj.creator.user == user
+            
+        return False

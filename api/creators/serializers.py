@@ -3,10 +3,27 @@ from django.db import transaction
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from api.creators.models import CreatorProfile, SocialAccountLead
+from api.creators.models import CreatorProfile, SocialAccountLead, PromoCode, CreatorContract
 from api.users.roles import UserRoles
 
 User = get_user_model()
+
+
+class CreatorContractSerializer(serializers.ModelSerializer):
+    creator = CreatorMiniSerializer(read_only=True)
+    creator_id = serializers.UUIDField(write_only=True, source="creator")
+
+    class Meta:
+        model = CreatorContract
+        fields = (
+            "id",
+            "title",
+            "file",
+            "creator",
+            "creator_id",
+            "created_at",
+            "updated_at",
+        )
 
 
 class CreatorProfileSerializer(serializers.ModelSerializer):
@@ -30,9 +47,8 @@ class CreatorProfileSerializer(serializers.ModelSerializer):
             "phone_number",
             "country",
             "city",
-            "promo_code",
+            "currency",
             "status",
-            "commission_rate",
             "notes",
             "created_at",
             "updated_at",
@@ -59,8 +75,7 @@ class CreatorProfileCreateSerializer(serializers.ModelSerializer):
             "phone_number",
             "country",
             "city",
-            "promo_code",
-            "commission_rate",
+            "currency",
             "notes",
         )
 
@@ -69,12 +84,6 @@ class CreatorProfileCreateSerializer(serializers.ModelSerializer):
         if User.objects.filter(email=email).exists():
             raise ValidationError("Un utilisateur avec cet email existe déjà.")
         return email
-
-    def validate_promo_code(self, value):
-        promo_code = value.strip().upper()
-        if CreatorProfile.objects.filter(promo_code=promo_code).exists():
-            raise ValidationError("Ce code promotionnel est déjà utilisé.")
-        return promo_code
 
     @transaction.atomic
     def create(self, validated_data):
@@ -102,24 +111,11 @@ class CreatorProfileUpdateSerializer(serializers.ModelSerializer):
             "phone_number",
             "country",
             "city",
-            "promo_code",
+            "currency",
             "status",
-            "commission_rate",
             "notes",
             "is_active",
         )
-
-    def validate_promo_code(self, value):
-        promo_code = value.strip().upper()
-        queryset = CreatorProfile.objects.filter(promo_code=promo_code)
-
-        if self.instance:
-            queryset = queryset.exclude(pk=self.instance.pk)
-
-        if queryset.exists():
-            raise ValidationError("Ce code promotionnel est déjà utilisé.")
-
-        return promo_code
 
     @transaction.atomic
     def update(self, instance, validated_data):
@@ -149,9 +145,42 @@ class CreatorMiniSerializer(serializers.ModelSerializer):
             "id",
             "email",
             "full_name",
-            "promo_code",
             "status",
+            "currency",
         )
+
+
+class PromoCodeSerializer(serializers.ModelSerializer):
+    creator = CreatorMiniSerializer(read_only=True)
+    creator_id = serializers.UUIDField(write_only=True, source="creator")
+
+    class Meta:
+        model = PromoCode
+        fields = (
+            "id",
+            "creator",
+            "creator_id",
+            "code",
+            "status",
+            "commission_rate",
+            "bonus_amount",
+            "description",
+            "valid_until",
+            "created_at",
+            "updated_at",
+        )
+
+    def validate_code(self, value):
+        code = value.strip().upper()
+        queryset = PromoCode.objects.filter(code=code)
+
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise ValidationError("Ce code promotionnel est déjà utilisé.")
+
+        return code
 
 
 class SocialAccountLeadSerializer(serializers.ModelSerializer):
@@ -207,3 +236,38 @@ class SocialAccountLeadCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate_profile_url(self, value):
         return value.strip() if value else value
+
+
+class CreatorKpiSerializer(serializers.Serializer):
+    """
+    Serializer pour les indicateurs de performance (KPIs) d'un créateur.
+    """
+    total_leads = serializers.IntegerField(read_only=True)
+    total_contracts = serializers.IntegerField(read_only=True)
+    conversion_rate = serializers.FloatField(read_only=True)
+    total_revenue = serializers.DecimalField(read_only=True, max_digits=12, decimal_places=2)
+    total_commissions = serializers.DecimalField(read_only=True, max_digits=12, decimal_places=2)
+    currency = serializers.CharField(read_only=True)
+
+
+class CreatorAggregateKpiSerializer(CreatorKpiSerializer):
+    """
+    Serializer pour les KPIs agrégés, incluant les informations du créateur.
+    """
+    id = serializers.UUIDField(source="creator_id")
+    full_name = serializers.CharField(source="creator_full_name")
+    promo_code = serializers.CharField(source="creator_promo_code")
+    currency = serializers.CharField(source="creator_currency")
+
+    class Meta:
+        fields = (
+            "id",
+            "full_name",
+            "promo_code",
+            "total_leads",
+            "total_contracts",
+            "conversion_rate",
+            "total_revenue",
+            "total_commissions",
+            "currency",
+        )

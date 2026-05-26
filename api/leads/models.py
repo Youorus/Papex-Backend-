@@ -91,6 +91,24 @@ class Lead(models.Model):
     # 📊 Tracking
     created_at = models.DateTimeField(default=timezone.now, verbose_name=_("date de création"))
 
+    creator_profile = models.ForeignKey(
+        "creators.CreatorProfile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="leads",
+        verbose_name=_("Profil Créateur"),
+    )
+
+    promo_code = models.ForeignKey(
+        "creators.PromoCode",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="leads",
+        verbose_name=_("Code Promo"),
+    )
+
     status = models.ForeignKey(
         "lead_status.LeadStatus",
         on_delete=models.PROTECT,
