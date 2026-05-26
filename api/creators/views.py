@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from api.contracts.models import Contract
 from api.creators.filters import CreatorProfileFilter, SocialAccountLeadFilter, CreatorKpiFilter
-from api.creators.models import CreatorProfile, SocialAccountLead, PromoCode
+from api.creators.models import CreatorProfile, SocialAccountLead, PromoCode, CreatorContract
 from api.creators.pagination import StandardResultsSetPagination
 from api.creators.permissions import IsAdminOrStaff, IsAdminOrCreator
 from api.creators.serializers import (
