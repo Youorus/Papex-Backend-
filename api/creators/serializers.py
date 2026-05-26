@@ -256,14 +256,12 @@ class CreatorAggregateKpiSerializer(CreatorKpiSerializer):
     """
     id = serializers.UUIDField(source="creator_id")
     full_name = serializers.CharField(source="creator_full_name")
-    promo_code = serializers.CharField(source="creator_promo_code")
     currency = serializers.CharField(source="creator_currency")
 
     class Meta:
         fields = (
             "id",
             "full_name",
-            "promo_code",
             "total_leads",
             "total_contracts",
             "conversion_rate",

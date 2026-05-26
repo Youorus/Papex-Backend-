@@ -1,3 +1,6 @@
+from datetime import datetime
+from decimal import Decimal
+
 from django.db.models import Count, Sum, F, ExpressionWrapper, DecimalField, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
@@ -18,6 +21,7 @@ from api.creators.serializers import (
     SocialAccountLeadSerializer, CreatorKpiSerializer, PromoCodeSerializer, CreatorAggregateKpiSerializer,
     CreatorContractSerializer,
 )
+from api.leads.models import Lead
 from api.users.roles import UserRoles
 
 
@@ -149,10 +153,17 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="aggregate-kpis", permission_classes=[IsAdminOrStaff])
     def aggregate_kpis(self, request):
         self.filterset_class = CreatorKpiFilter
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self.get_queryset()
+        
+        # Instantiate filterset manually to get cleaned_data
+        filterset = self.filterset_class(request.GET, queryset=queryset)
+        if not filterset.is_valid():
+            return Response(filterset.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        filtered_queryset = filterset.qs
 
-        start_date = self.filterset.form.cleaned_data.get("leads_date_range_after")
-        end_date = self.filterset.form.cleaned_data.get("leads_date_range_before")
+        start_date = filterset.form.cleaned_data.get("leads_date_range_after")
+        end_date = filterset.form.cleaned_data.get("leads_date_range_before")
 
         contracts_filter = Q(client__lead__promo_code__isnull=False, is_cancelled=False)
         if start_date:
@@ -166,7 +177,8 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
 
         for contract in contracts:
             creator = contract.client.lead.promo_code.creator
-            if creator.id not in queryset.values_list('id', flat=True):
+            # Check if this creator is in our filtered queryset of creators
+            if not filtered_queryset.filter(id=creator.id).exists():
                 continue
 
             if creator.id not in creator_kpis:
@@ -188,7 +200,7 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
             creator_kpis[creator.id]["total_revenue"] += contract.amount_due
             creator_kpis[creator.id]["total_commissions"] += commission
 
-        leads_filter = Q(creator_profile__in=queryset)
+        leads_filter = Q(creator_profile__in=filtered_queryset)
         if start_date:
             leads_filter &= Q(created_at__date__gte=start_date)
         if end_date:
@@ -201,6 +213,34 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
             creator_id = lead_data['creator_profile']
             if creator_id in creator_kpis:
                 creator_kpis[creator_id]['total_leads'] = lead_data['total']
+            else:
+                # If the creator had leads but no contracts, we still want to show them if they match filters
+                try:
+                    creator = filtered_queryset.get(id=creator_id)
+                    creator_kpis[creator_id] = {
+                        "creator_id": creator.id,
+                        "creator_full_name": creator.user.get_full_name(),
+                        "creator_currency": creator.currency,
+                        "total_leads": lead_data['total'],
+                        "total_contracts": 0,
+                        "total_revenue": Decimal("0.00"),
+                        "total_commissions": Decimal("0.00"),
+                    }
+                except CreatorProfile.DoesNotExist:
+                    continue
+
+        # Ensure creators with NO leads and NO contracts but matching filters are also included if they exist in filtered_queryset
+        for creator in filtered_queryset:
+            if creator.id not in creator_kpis:
+                creator_kpis[creator.id] = {
+                    "creator_id": creator.id,
+                    "creator_full_name": creator.user.get_full_name(),
+                    "creator_currency": creator.currency,
+                    "total_leads": 0,
+                    "total_contracts": 0,
+                    "total_revenue": Decimal("0.00"),
+                    "total_commissions": Decimal("0.00"),
+                }
 
         for kpi in creator_kpis.values():
             if kpi['total_leads'] > 0:
