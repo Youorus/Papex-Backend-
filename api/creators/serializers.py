@@ -9,23 +9,6 @@ from api.users.roles import UserRoles
 User = get_user_model()
 
 
-class CreatorContractSerializer(serializers.ModelSerializer):
-    creator = CreatorMiniSerializer(read_only=True)
-    creator_id = serializers.UUIDField(write_only=True, source="creator")
-
-    class Meta:
-        model = CreatorContract
-        fields = (
-            "id",
-            "title",
-            "file",
-            "creator",
-            "creator_id",
-            "created_at",
-            "updated_at",
-        )
-
-
 class CreatorProfileSerializer(serializers.ModelSerializer):
     user_id = serializers.UUIDField(source="user.id", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
@@ -147,6 +130,23 @@ class CreatorMiniSerializer(serializers.ModelSerializer):
             "full_name",
             "status",
             "currency",
+        )
+
+
+class CreatorContractSerializer(serializers.ModelSerializer):
+    creator = CreatorMiniSerializer(read_only=True)
+    creator_id = serializers.UUIDField(write_only=True, source="creator")
+
+    class Meta:
+        model = CreatorContract
+        fields = (
+            "id",
+            "title",
+            "file",
+            "creator",
+            "creator_id",
+            "created_at",
+            "updated_at",
         )
 
 
