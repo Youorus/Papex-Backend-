@@ -18,6 +18,8 @@ from api.creators.serializers import (
     SocialAccountLeadSerializer, CreatorKpiSerializer, PromoCodeSerializer, CreatorAggregateKpiSerializer,
     CreatorContractSerializer,
 )
+from api.users.roles import UserRoles
+
 
 
 class CreatorProfileViewSet(viewsets.ModelViewSet):
