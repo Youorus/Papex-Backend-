@@ -123,11 +123,14 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
         total_leads = leads_queryset.count()
         total_contracts = contracts_queryset.count()
 
-        total_revenue = contracts_queryset.aggregate(total=Sum('amount_due'))['total'] or Decimal("0.00")
+        aggregation = contracts_queryset.aggregate(total=Sum('amount_due'))
+        total_revenue = aggregation['total'] or Decimal("0.00")
+        
         total_commissions = Decimal("0.00")
 
         if total_contracts > 0:
             for contract in contracts_queryset.select_related('client__lead__promo_code'):
+                # Using the real_amount property from the Contract model
                 real_amount = contract.real_amount
                 promo_code = contract.client.lead.promo_code
                 if promo_code:
@@ -140,14 +143,14 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
         data = {
             "total_leads": total_leads,
             "total_contracts": total_contracts,
-            "conversion_rate": round(conversion_rate, 2),
+            "conversion_rate": round(float(conversion_rate), 2),
             "total_revenue": total_revenue,
             "total_commissions": total_commissions.quantize(Decimal('0.01')),
-            "currency": creator.currency,
+            "currency": creator.currency or "EUR",
         }
 
-        serializer = CreatorKpiSerializer(data=data)
-        serializer.is_valid(raise_exception=True)
+        # Use data as the instance for the serializer to ensure read_only fields are populated
+        serializer = CreatorKpiSerializer(data)
         return Response(serializer.data)
 
     @action(detail=False, methods=["get"], url_path="aggregate-kpis", permission_classes=[IsAdminOrStaff])
@@ -235,24 +238,30 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
                 creator_kpis[creator.id] = {
                     "creator_id": creator.id,
                     "creator_full_name": creator.user.get_full_name(),
-                    "creator_currency": creator.currency,
+                    "creator_currency": creator.currency or "EUR",
                     "total_leads": 0,
                     "total_contracts": 0,
                     "total_revenue": Decimal("0.00"),
                     "total_commissions": Decimal("0.00"),
                 }
 
+        final_creator_kpis = []
         for kpi in creator_kpis.values():
             if kpi['total_leads'] > 0:
                 kpi['conversion_rate'] = round((kpi['total_contracts'] / kpi['total_leads']) * 100, 2)
             else:
                 kpi['conversion_rate'] = 0.0
+            
+            # Formattage des décimaux
+            kpi['total_revenue'] = kpi['total_revenue'].quantize(Decimal('0.01'))
+            kpi['total_commissions'] = kpi['total_commissions'].quantize(Decimal('0.01'))
+            final_creator_kpis.append(kpi)
 
         summary = {
-            "total_leads": sum(kpi['total_leads'] for kpi in creator_kpis.values()),
-            "total_contracts": sum(kpi['total_contracts'] for kpi in creator_kpis.values()),
-            "total_revenue": sum(kpi['total_revenue'] for kpi in creator_kpis.values()),
-            "total_commissions": sum(kpi['total_commissions'] for kpi in creator_kpis.values()),
+            "total_leads": sum(kpi['total_leads'] for kpi in final_creator_kpis),
+            "total_contracts": sum(kpi['total_contracts'] for kpi in final_creator_kpis),
+            "total_revenue": sum(kpi['total_revenue'] for kpi in final_creator_kpis),
+            "total_commissions": sum(kpi['total_commissions'] for kpi in final_creator_kpis),
         }
 
         if summary['total_leads'] > 0:
@@ -262,7 +271,7 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
 
         response_data = {
             "summary": summary,
-            "creators": CreatorAggregateKpiSerializer(creator_kpis.values(), many=True).data,
+            "creators": CreatorAggregateKpiSerializer(final_creator_kpis, many=True).data,
         }
 
         return Response(response_data)
