@@ -1,0 +1,35 @@
+{% extends "email/_layout_email.html" %}
+
+{% block subject %}Rappel amical : votre échéance Papiers Express{% endblock %}
+
+{% block preview %}Un petit rappel concernant votre prochain règlement pour votre dossier.{% endblock %}
+
+{% block title %}Votre prochaine échéance{% endblock %}
+
+{% block email_content %}
+  <p>Bonjour {{ client_name }},</p>
+  
+  <p>Nous espérons que vous allez bien.</p>
+  
+  <p>Ce message est un petit rappel amical concernant votre accompagnement avec <strong>Papiers Express</strong>.</p>
+
+  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 25px; margin: 25px 0; text-align: center;">
+    <p style="margin: 0 0 10px; color: #64748b; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; font-weight: 700;">Montant restant à régler</p>
+    <p style="margin: 0; font-size: 32px; color: #1e293b; font-weight: 800;">{{ balance }} €</p>
+    <p style="margin: 15px 0 0; color: #475569; font-size: 14px;">Prévu pour le <strong>{{ due_date }}</strong></p>
+  </div>
+
+  <p>Le règlement de vos échéances nous permet de continuer à faire avancer votre dossier avec toute la réactivité nécessaire.</p>
+
+  <p>Si vous avez déjà effectué ce paiement ou si vous rencontrez une difficulté particulière, n'hésitez pas à nous en faire part directement sur WhatsApp ou par téléphone.</p>
+
+  <div style="text-align: center; margin-top: 35px;">
+    <a href="https://wa.me/33631018426" style="background: #25d366; color: #ffffff; padding: 14px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; display: inline-block;">
+      Nous contacter sur WhatsApp
+    </a>
+  </div>
+
+  <p style="margin-top: 30px; font-size: 14px; color: #64748b; font-style: italic;">
+    Toute l'équipe de Papiers Express vous remercie de votre confiance.
+  </p>
+{% endblock %}

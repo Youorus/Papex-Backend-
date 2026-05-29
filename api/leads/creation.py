@@ -16,14 +16,4 @@ def create_lead_with_side_effects(
 
     Client.objects.get_or_create(lead=lead)
 
-    LeadEvent.log(
-        lead=lead,
-        event_code="LEAD_CREATED",
-        actor=actor,
-        data={
-            "source": event_source,
-            **(event_data or {}),
-        },
-    )
-
     return lead

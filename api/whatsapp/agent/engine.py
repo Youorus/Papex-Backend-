@@ -1,5 +1,5 @@
 """
-Moteur conversationnel — Agent Kemora (Papiers Express).
+Moteur conversationnel — Agent Kemia (Papiers Express).
 
 Multi-conversations : chaque appel est stateless.
 Singleton Gemini client pour réutiliser la connexion HTTP.
@@ -9,10 +9,10 @@ Stratégie de création de lead :
      → On obtient immédiatement le résultat (created / updated / error).
      → Si Django-Q2 est disponible ET configuré, on délègue en async.
   2. Si la création réussit, on injecte un contexte [[LEAD_RESULT:...]] dans
-     la réponse nettoyée pour que l'engine puisse confirmer à Kemora
+     la réponse nettoyée pour que l'engine puisse confirmer à Kemia
      côté message visible (ou pour debug/logging).
 
-Note : La confirmation visible au client est déjà écrite par Kemora
+Note : La confirmation visible au client est déjà écrite par Kemia
 dans son message (section 8 du prompt). On ne la regénère pas.
 """
 
@@ -21,12 +21,15 @@ import logging
 from typing import Optional, Tuple
 
 from django.conf import settings
+from django.core.cache import cache
 
 from .prompt import (
     SYSTEM_PROMPT,
     GEMINI_MODEL_OVERRIDE,
     LEAD_DATA_MARKER,
     LEAD_DATA_END,
+    ESCALATE_MARKER,
+    ESCALATE_END,
 )
 from ..models import WhatsAppMessage
 
@@ -54,7 +57,45 @@ def _get_gemini_client():
 
 
 def _get_model_name() -> str:
-    return GEMINI_MODEL_OVERRIDE or getattr(settings, "GEMINI_MODEL", "gemini-2.5-pro")
+    # Le caching nécessite souvent un modèle spécifique (ex: gemini-1.5-flash-002 ou gemini-1.5-pro-002)
+    return GEMINI_MODEL_OVERRIDE or getattr(settings, "GEMINI_MODEL", "gemini-1.5-flash-002")
+
+
+def _get_or_create_context_cache():
+    """
+    Récupère ou crée un cache de contexte Gemini pour le SYSTEM_PROMPT.
+    Ceci réduit drastiquement les coûts et augmente la rapidité.
+    """
+    cache_key = "kemia_gemini_context_cache_name"
+    cache_name = cache.get(cache_key)
+
+    if cache_name:
+        return cache_name
+
+    client = _get_gemini_client()
+    model_name = _get_model_name()
+    
+    try:
+        from google.genai import types
+        
+        # On crée un cache valide pour 24h (86400s)
+        ctx_cache = client.caches.create(
+            model=model_name,
+            config=types.CachedContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                display_name="kemia_system_instructions",
+                ttl="86400s",
+            ),
+        )
+        cache_name = ctx_cache.name
+        # On stocke le nom du cache dans Redis pour 23h
+        cache.set(cache_key, cache_name, timeout=82800)
+        logger.info("🔥 Nouveau cache de contexte Gemini créé : %s", cache_name)
+        return cache_name
+    except Exception as e:
+        # Si le modèle ne supporte pas le caching ou si le prompt est trop court
+        logger.warning("⚠️ Impossible de créer le cache Gemini (usage normal sans cache) : %s", e)
+        return None
 
 
 # ─── Historique ───────────────────────────────────────────────────────────────
@@ -63,11 +104,13 @@ def _format_history(messages) -> str:
     lines = []
     total_chars = 0
     for msg in messages:
-        role = "Kemora" if msg.is_outbound else "Client"
+        role = "Kemia" if msg.is_outbound else "Client"
         body = msg.body or ""
-        # Retirer les blocs LEAD_DATA de l'historique (jamais visibles dans le contexte)
-        if LEAD_DATA_MARKER in body:
-            body = body[:body.index(LEAD_DATA_MARKER)].strip()
+        # Retirer les blocs de données de l'historique
+        for marker, end in [(LEAD_DATA_MARKER, LEAD_DATA_END), (ESCALATE_MARKER, ESCALATE_END)]:
+            if marker in body:
+                body = body[:body.index(marker)].strip()
+        
         if len(body) > 400:
             body = body[:400] + "…"
         line = f"{role}: {body}"
@@ -219,7 +262,7 @@ def _build_prompt(
         parts.append(
             "[ÉTAT: PREMIER CONTACT — c'est le premier message de cette personne. "
             "Répondez directement à sa question ou demandez simplement comment vous pouvez l'aider. "
-            "NE PAS vous présenter par votre nom. NE PAS dire 'Je suis Kemora'. "
+            "NE PAS vous présenter par votre nom. "
             "Un 'Bonjour 😊' suffit si besoin d'une accroche. Restez naturel.]"
         )
     else:
@@ -231,9 +274,9 @@ def _build_prompt(
 
     parts.append(f"=== Historique ===\n{history_text}" if history_text else "[Pas d'historique]")
     parts.append(f"=== Nouveau message du client ===\n{incoming_message}")
-    parts.append("=== Réponse de Kemora ===")
+    parts.append("=== Votre réponse ===")
 
-    return f"{SYSTEM_PROMPT_CACHED}\n\n---\n\n" + "\n\n".join(parts)
+    return "\n\n".join(parts)
 
 
 # ─── Extraction / nettoyage LEAD_DATA ─────────────────────────────────────────
@@ -250,15 +293,30 @@ def _extract_lead_data(text: str) -> Optional[dict]:
         return None
 
 
-def _strip_lead_marker(text: str) -> str:
-    if LEAD_DATA_MARKER not in text:
-        return text
+def _extract_escalation_reason(text: str) -> Optional[str]:
+    if ESCALATE_MARKER not in text:
+        return None
     try:
-        start = text.index(LEAD_DATA_MARKER)
-        end   = text.index(LEAD_DATA_END, start) + len(LEAD_DATA_END)
-        return (text[:start] + text[end:]).strip()
+        start = text.index(ESCALATE_MARKER) + len(ESCALATE_MARKER)
+        end   = text.index(ESCALATE_END, start)
+        reason = text[start:end].strip().strip('"').strip("'")
+        return reason
     except ValueError:
-        return text
+        return None
+
+
+def _strip_markers(text: str) -> str:
+    """Retire tous les marqueurs système de la réponse finale client."""
+    clean = text
+    for marker, end in [(LEAD_DATA_MARKER, LEAD_DATA_END), (ESCALATE_MARKER, ESCALATE_END)]:
+        if marker in clean:
+            try:
+                start = clean.index(marker)
+                end_idx = clean.index(end, start) + len(end)
+                clean = (clean[:start] + clean[end_idx:]).strip()
+            except ValueError:
+                pass
+    return clean
 
 
 # ─── Validation lead data ─────────────────────────────────────────────────────
@@ -319,7 +377,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
       en mode synchrone, ou {"status": "queued"} en mode async.
 
     Important : en mode async, la confirmation visible au client
-    est déjà incluse dans le message Kemora (généré par le LLM).
+    est déjà incluse dans le message Kemia (généré par le LLM).
     En mode sync, on peut vérifier le résultat mais la réponse est
     déjà construite — on log seulement.
     """
@@ -329,12 +387,13 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         logger.warning("Dispatch lead ignoré — %s | data=%s", error, data)
         return {"status": "error", "error": error}
 
-    first_name       = (data.get("first_name") or "").strip()
-    last_name        = (data.get("last_name") or "").strip()
-    phone            = (data.get("phone") or "").strip() or sender_phone
-    email            = (data.get("email") or "").strip() or None
-    appointment_date = (data.get("appointment_date") or "").strip()
-    appointment_type = (data.get("appointment_type") or "presentiel").strip()
+    first_name        = (data.get("first_name") or "").strip()
+    last_name         = (data.get("last_name") or "").strip()
+    phone             = (data.get("phone") or "").strip() or sender_phone
+    email             = (data.get("email") or "").strip() or None
+    appointment_date  = (data.get("appointment_date") or "").strip()
+    appointment_type  = (data.get("appointment_type") or "presentiel").strip()
+    situation_summary = (data.get("situation_summary") or "").strip()
     if appointment_type not in ("presentiel", "visio"):
         appointment_type = "presentiel"
 
@@ -346,8 +405,8 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         return {"status": "error", "error": "phone manquant"}
 
     logger.info(
-        "Dispatch lead — %s %s | phone=%s | rdv=%s | email=%s",
-        first_name, last_name, phone, appointment_date, email or "—",
+        "Dispatch lead — %s %s | phone=%s | rdv=%s | email=%s | situation_summary_len=%d",
+        first_name, last_name, phone, appointment_date, email or "—", len(situation_summary)
     )
 
     # ── Tentative async via Django-Q2 ─────────────────────────────────────────
@@ -365,6 +424,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
                 sender_phone=sender_phone,
                 appointment_date=appointment_date,
                 appointment_type=appointment_type,
+                situation_summary=situation_summary,
                 q_options={
                     "task_name": f"kemora_lead_{sender_phone}",
                     "timeout": 60,
@@ -392,6 +452,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         sender_phone=sender_phone,
         appointment_date=appointment_date,
         appointment_type=appointment_type,
+        situation_summary=situation_summary,
     )
 
     logger.info(
@@ -410,7 +471,7 @@ def generate_agent_reply(
     first_contact: bool = True,
 ) -> Optional[Tuple[str, Optional[dict]]]:
     """
-    Génère la réponse de Kemora pour une conversation donnée.
+    Génère la réponse de Kemia pour une conversation donnée.
     Chaque appel est totalement indépendant (stateless).
 
     Retourne (reply_text, lead_result) où :
@@ -448,7 +509,7 @@ def generate_agent_reply(
 
     # ── Appel Gemini ──────────────────────────────────────────────────────────
     try:
-        prompt = _build_prompt(
+        dynamic_prompt = _build_prompt(
             incoming_message=incoming_message,
             history_text=history_text,
             lead=lead,
@@ -457,11 +518,31 @@ def generate_agent_reply(
             first_contact=first_contact,
         )
         client = _get_gemini_client()
-
-        response = client.models.generate_content(
-            model=_get_model_name(),
-            contents=prompt,
-        )
+        model_name = _get_model_name()
+        
+        # ⚡ TENTATIVE CACHE CONTEXTE ⚡
+        cache_name = _get_or_create_context_cache()
+        
+        from google.genai import types
+        
+        if cache_name:
+            # Usage avec cache : on n'envoie plus SYSTEM_PROMPT car il est dans le cache
+            response = client.models.generate_content(
+                model=model_name,
+                contents=dynamic_prompt,
+                config=types.GenerateContentConfig(
+                    cached_content=cache_name,
+                ),
+            )
+        else:
+            # Fallback : usage normal (Sytem Instruction + Dynamic Prompt)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=dynamic_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                ),
+            )
 
         full_reply = (response.text or "").strip()
         if not full_reply:
@@ -492,10 +573,17 @@ def generate_agent_reply(
                     lead_data.get("appointment_date"),
                 )
 
-        clean_reply = _strip_lead_marker(full_reply)
+        # ── Gestion de l'escalade ─────────────────────────────────────────────
+        escalation_reason = _extract_escalation_reason(full_reply)
+        if escalation_reason:
+            from api.utils.email.internal_alerts import send_ai_escalation_alert
+            send_ai_escalation_alert(lead=lead, reason=escalation_reason, sender_phone=sender_phone)
+            logger.info("Kemia — Escalade déclenchée : %s", escalation_reason)
+
+        clean_reply = _strip_markers(full_reply)
 
         logger.info(
-            "Kemora — réponse | modèle=%s first=%s chars=%d lead_dispatched=%s lead_status=%s",
+            "Kemia — réponse | modèle=%s first=%s chars=%d lead_dispatched=%s lead_status=%s",
             _get_model_name(),
             first_contact,
             len(clean_reply),

@@ -7,5 +7,4 @@ class UsersConfig(AppConfig):
     name = "api.users"
 
     def ready(self):
-        import api.websocket.signals.leads
-        import api.websocket.signals.clients
+        pass

@@ -19,7 +19,11 @@ class Comment(models.Model):
         verbose_name=_("Lead associé"),
     )
     author = models.ForeignKey(
-        "users.User", on_delete=models.CASCADE, verbose_name=_("Auteur")
+        "users.User", 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        verbose_name=_("Auteur")
     )
     content = models.TextField(_("Contenu"))
     created_at = models.DateTimeField(_("Date de création"), auto_now_add=True)

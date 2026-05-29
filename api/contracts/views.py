@@ -94,19 +94,6 @@ class ContractViewSet(viewsets.ModelViewSet):
         contract.contract_url = pdf_url
         contract.save(update_fields=["contract_url"])
 
-        try:
-            from api.leads_events.models import LeadEvent
-
-            lead = contract.client.lead
-            LeadEvent.log(
-                lead=lead,
-                event_code="CONTRACT_SIGNED",
-                actor=self.request.user,
-                data={"contract_id": contract.id},
-            )
-        except Exception as e:
-            logger.error("[ContractViewSet] Erreur log CONTRACT_SIGNED : %s", e)
-
     # ─────────────────────────────
     # UPDATE
     # ─────────────────────────────

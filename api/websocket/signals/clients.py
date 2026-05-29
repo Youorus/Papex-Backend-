@@ -19,8 +19,8 @@ def on_client_saved(sender, instance: Client, created, **kwargs):
     payload = safe_payload(event, instance, ClientSerializer, {"changed": changed})
 
     groups = ["clients"]
-    if instance.lead_id:
-        groups.append(f"client-{instance.lead_id}")  # WebSocket group dynamique
+    if instance.id:
+        groups.append(f"client-{instance.id}")  # WebSocket group dynamique (client_id)
 
     transaction.on_commit(lambda: broadcast(groups, payload))
 
@@ -29,7 +29,7 @@ def on_client_deleted(sender, instance: Client, **kwargs):
     payload = safe_payload("deleted", instance, ClientSerializer)
 
     groups = ["clients"]
-    if instance.lead_id:
-        groups.append(f"client-{instance.lead_id}")
+    if instance.id:
+        groups.append(f"client-{instance.id}")
 
     transaction.on_commit(lambda: broadcast(groups, payload))

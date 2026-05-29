@@ -151,13 +151,6 @@ class LeadViewSetV2(viewsets.ModelViewSet):
         from api.clients.models import Client
         Client.objects.get_or_create(lead=lead)
 
-        LeadEvent.log(
-            lead=lead,
-            event_code="LEAD_CREATED",
-            actor=None,
-            data={"source": "booking_form"}
-        )
-
         return Response(
             self.get_serializer(lead).data,
             status=status.HTTP_201_CREATED
@@ -200,13 +193,6 @@ class LeadViewSetV2(viewsets.ModelViewSet):
 
         lead.assigned_to.set(user_ids)
 
-        LeadEvent.log(
-            lead=lead,
-            event_code="LEAD_ASSIGNED",
-            actor=request.user,
-            data={"assigned_to": user_ids},
-        )
-
         return Response({"success": True})
 
     # ==========================
@@ -224,13 +210,6 @@ class LeadViewSetV2(viewsets.ModelViewSet):
         lead.jurist_assigned.set(user_ids)
         lead.juriste_assigned_at = timezone.now()
         lead.save(update_fields=["juriste_assigned_at"])
-
-        LeadEvent.log(
-            lead=lead,
-            event_code="JURIST_ASSIGNED",
-            actor=request.user,
-            data={"jurists": user_ids},
-        )
 
         return Response({"success": True})
 
@@ -250,13 +229,6 @@ class LeadViewSetV2(viewsets.ModelViewSet):
 
         for lead in leads:
             lead.assigned_to.set(user_ids)
-
-            LeadEvent.log(
-                lead=lead,
-                event_code="LEAD_ASSIGNED",
-                actor=request.user,
-                data={"assigned_to": user_ids},
-            )
 
         return Response({"success": True, "updated": leads.count()})
 
@@ -279,13 +251,6 @@ class LeadViewSetV2(viewsets.ModelViewSet):
             lead.juriste_assigned_at = timezone.now()
             lead.save(update_fields=["juriste_assigned_at"])
 
-            LeadEvent.log(
-                lead=lead,
-                event_code="JURIST_ASSIGNED",
-                actor=request.user,
-                data={"jurists": user_ids},
-            )
-
         return Response({"success": True, "updated": leads.count()})
 
     # ==========================
@@ -298,40 +263,9 @@ class LeadViewSetV2(viewsets.ModelViewSet):
         from api.clients.models import Client
         Client.objects.get_or_create(lead=lead)
 
-        LeadEvent.log(
-            lead=lead,
-            event_code="LEAD_CREATED",
-            actor=self.request.user
-        )
-
     # ==========================
     # UPDATE
     # ==========================
 
     def perform_update(self, serializer):
-        instance = serializer.instance
-        old_status = instance.status
-        old_dossier_status = instance.statut_dossier
-
-        lead = serializer.save()
-
-        # 🔁 changement de statut
-        if old_status and old_status != lead.status:
-            LeadEvent.log(
-                lead=lead,
-                event_code="STATUS_CHANGED",
-                actor=self.request.user,
-                data={"from": old_status.code, "to": lead.status.code}
-            )
-
-        # 📁 changement dossier
-        if old_dossier_status != lead.statut_dossier:
-            LeadEvent.log(
-                lead=lead,
-                event_code="DOSSIER_STATUS_CHANGED",
-                actor=self.request.user,
-                data={
-                    "from": old_dossier_status.id if old_dossier_status else None,
-                    "to": lead.statut_dossier.id if lead.statut_dossier else None,
-                }
-            )
+        serializer.save()

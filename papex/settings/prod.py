@@ -92,6 +92,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # -----------------------------------------------------------------------------
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
+    "api.middleware.CookieToHeaderMiddleware",
     "django.middleware.gzip.GZipMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -99,6 +100,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "api.middleware.CurrentUserMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django.middleware.http.ConditionalGetMiddleware",
@@ -148,7 +150,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 WHATSAPP_AGENT_ENABLED = os.getenv("WHATSAPP_AGENT_ENABLED", "False").lower() == "true"
 
-# Debounce Kemora en secondes (délai d'attente avant de traiter un burst de messages)
+# Debounce Kemia en secondes (délai d'attente avant de traiter un burst de messages)
 KEMORA_DEBOUNCE_SECONDS = int(os.getenv("KEMORA_DEBOUNCE_SECONDS", "4"))
 
 # Création de leads en async via Django-Q2 (False = synchrone, plus simple)
@@ -191,7 +193,7 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # REDIS
 # Le même Redis est utilisé pour :
 #   - Django Channels (WebSocket)
-#   - Le cache Django (debounce Kemora, sessions, etc.)
+#   - Le cache Django (debounce Kemia, sessions, etc.)
 # -----------------------------------------------------------------------------
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -201,7 +203,7 @@ IS_REDIS_SSL = REDIS_URL.startswith("rediss://")
 # -----------------------------------------------------------------------------
 # CACHES — Redis partagé entre le process web ET les workers Django-Q2
 # -----------------------------------------------------------------------------
-# ⚠️  CRITIQUE pour le debounce Kemora :
+# ⚠️  CRITIQUE pour le debounce Kemia :
 #     Le process web écrit le token dans le cache.
 #     Les workers Django-Q2 (processus séparés) lisent ce même token.
 #     → Avec LocMemCache chaque process a son propre cache isolé = token jamais trouvé.
@@ -266,7 +268,7 @@ Q_CLUSTER = {
     # 5 tâches max en mémoire par worker, le reste attend en base
     "queue_limit": 5,
 
-    # Kemora : Gemini (~8s) + Meta (~1s) + marge = 90s max
+    # Kemia : Gemini (~8s) + Meta (~1s) + marge = 90s max
     "timeout": 90,
 
     # ✅ retry > timeout : évite le re-déclenchement avant la fin d'exécution

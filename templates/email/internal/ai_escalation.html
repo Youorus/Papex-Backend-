@@ -1,0 +1,38 @@
+{% extends "email/_layout_email.html" %}
+
+{% block subject %}🚨 ALERTE KEMORA : Intervention humaine requise{% endblock %}
+
+{% block preview %}L'agent Kemia demande de l'aide pour un dossier.{% endblock %}
+
+{% block title %}Urgent : Intervention requise{% endblock %}
+
+{% block email_content %}
+  <p>Bonjour,</p>
+  <p>L'agent IA <strong>Kemia</strong> sollicite votre aide pour une conversation WhatsApp.</p>
+
+  <div style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 20px; margin: 25px 0;">
+    <p style="margin: 0 0 10px; color: #9f1239; font-weight: 700;">RAISON DE L'ALERTE :</p>
+    <p style="margin: 0; font-size: 18px; color: #e11d48;">"{{ reason }}"</p>
+  </div>
+
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 25px;">
+    <tr>
+      <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;"><strong>Client :</strong></td>
+      <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;">{{ lead_name }}</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;"><strong>Téléphone :</strong></td>
+      <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;">{{ sender_phone }}</td>
+    </tr>
+  </table>
+
+  <div style="text-align: center; margin-top: 35px;">
+    <a href="{{ whatsapp_url }}" style="background: #2563eb; color: #ffffff; padding: 14px 28px; border-radius: 6px; text-decoration: none; font-weight: 700; display: inline-block;">
+      Reprendre la main sur le CRM
+    </a>
+  </div>
+
+  <p style="margin-top: 30px; font-size: 14px; color: #64748b; font-style: italic;">
+    Note : L'IA continuera de répondre aux messages suivants sauf si vous désactivez l'agent dans les réglages de la conversation.
+  </p>
+{% endblock %}

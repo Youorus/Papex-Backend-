@@ -66,10 +66,27 @@ class LeadEventSerializer(serializers.ModelSerializer):
         attachment_ids = validated_data.pop("attachment_ids", [])
         event = super().create(validated_data)
         if attachment_ids:
-            from api.documents.models import Document
-            docs = Document.objects.filter(pk__in=attachment_ids)
-            event.attachments.set(docs)
+            self._handle_attachments(event, attachment_ids)
         return event
+
+    def update(self, instance, validated_data):
+        attachment_ids = validated_data.pop("attachment_ids", None)
+        
+        # On n'autorise la mise à jour via super().update() QUE pour les champs mutables (positions)
+        # car DRF appelle instance.save() qui bloque tout le reste.
+        mutable_data = {k: v for k, v in validated_data.items() if k in LeadEvent.MUTABLE_FIELDS}
+        if mutable_data:
+            instance = super().update(instance, mutable_data)
+        
+        if attachment_ids is not None:
+            self._handle_attachments(instance, attachment_ids)
+            
+        return instance
+
+    def _handle_attachments(self, event, attachment_ids):
+        from api.documents.models import Document
+        docs = Document.objects.filter(pk__in=attachment_ids)
+        event.attachments.set(docs)
 
 
 class LeadEventNodeSerializer(serializers.ModelSerializer):

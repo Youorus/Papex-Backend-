@@ -1,5 +1,5 @@
 """
-Moteur conversationnel — Agent Kemora (Papiers Express).
+Moteur conversationnel — Agent Kemia (Papiers Express).
 
 Multi-conversations : chaque appel est stateless.
 Singleton Gemini client pour réutiliser la connexion HTTP.
@@ -62,7 +62,7 @@ def _format_history(messages) -> str:
     total_chars = 0
 
     for msg in messages:
-        role = "Kemora" if msg.is_outbound else "Client"
+        role = "Kemia" if msg.is_outbound else "Client"
         body = msg.body or ""
 
         if LEAD_DATA_MARKER in body:
@@ -222,7 +222,7 @@ def _build_prompt(
 
     if first_contact:
         parts.append(
-            "[ÉTAT: PREMIER CONTACT — présente-toi brièvement en tant que Kemora "
+            "[ÉTAT: PREMIER CONTACT — présente-toi brièvement en tant que Kemia "
             "du cabinet Papiers Express, puis demande comment aider.]"
         )
     else:
@@ -234,7 +234,7 @@ def _build_prompt(
 
     parts.append(f"=== Historique ===\n{history_text}" if history_text else "[Pas d'historique]")
     parts.append(f"=== Nouveau message du client ===\n{incoming_message}")
-    parts.append("=== Réponse de Kemora ===")
+    parts.append("=== Réponse de Kemia ===")
 
     return f"{SYSTEM_PROMPT_CACHED}\n\n---\n\n" + "\n\n".join(parts)
 
@@ -472,7 +472,7 @@ def generate_agent_reply(
         clean_reply = _strip_lead_marker(full_reply)
 
         logger.info(
-            "Kemora — réponse | modèle=%s first=%s chars=%d lead_dispatched=%s lead_status=%s",
+            "Kemia — réponse | modèle=%s first=%s chars=%d lead_dispatched=%s lead_status=%s",
             _get_model_name(),
             first_contact,
             len(clean_reply),
@@ -641,17 +641,17 @@ def trigger_agent_response(
         )
 
         if not result:
-            logger.warning("Kemora n'a généré aucune réponse | phone=%s", sender_phone)
+            logger.warning("Kemia n'a généré aucune réponse | phone=%s", sender_phone)
             return None
 
         reply_text, lead_result = result
 
         if not reply_text or not reply_text.strip():
-            logger.warning("Kemora a généré une réponse vide | phone=%s", sender_phone)
+            logger.warning("Kemia a généré une réponse vide | phone=%s", sender_phone)
             return None
 
         logger.info(
-            "Réponse Kemora prête | phone=%s | chars=%d | lead_result=%s",
+            "Réponse Kemia prête | phone=%s | chars=%d | lead_result=%s",
             sender_phone, len(reply_text), lead_result,
         )
 
@@ -669,6 +669,21 @@ def trigger_agent_response(
         # ── 9) Envoi WhatsApp ─────────────────────────────────────────────────
         to_phone = normalize_phone_for_meta(sender_phone)
         logger.info("Envoi WhatsApp | to=%s | chars=%d", to_phone, len(reply_text))
+
+        # --- ⏳ SIMULATION HUMAINE (Délai de frappe) ---
+        # On calcule un délai proportionnel à la longueur du message
+        # Vitesse moyenne : ~5-10 caractères par seconde
+        typing_seconds = min(max(len(reply_text) / 8, 2), 12)  # Entre 2s et 12s max
+        logger.info("Simulation de frappe : %s secondes pour %d caractères", typing_seconds, len(reply_text))
+        
+        import time
+        start_typing = time.time()
+        while time.time() - start_typing < typing_seconds:
+            # On renvoie le typing indicator toutes les 4-5 secondes car il expire côté WhatsApp
+            if int(time.time() - start_typing) % 4 == 0:
+                send_whatsapp_typing_indicator(wa_message_id or f"type_{to_phone}")
+            time.sleep(1)
+
         meta_response = send_whatsapp_message(to_phone, reply_text)
 
         outbound_wa_id = (

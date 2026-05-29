@@ -1,4 +1,5 @@
 import logging
+from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -10,7 +11,11 @@ logger = logging.getLogger(__name__)
 
 def _send(event: str, instance: Lead):
     payload = safe_payload(event, instance, serializer_class=LeadSerializer)
-    broadcast(["leads"], payload)  # groupe général leads
+    
+    # On diffuse vers le groupe général ET le groupe spécifique au lead
+    groups = ["leads", f"leads_{instance.id}"]
+    
+    transaction.on_commit(lambda: broadcast(groups, payload))
 
 @receiver(post_save, sender=Lead)
 def on_lead_saved(sender, instance: Lead, created, **kwargs):

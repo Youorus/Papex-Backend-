@@ -294,11 +294,16 @@ def _eta_from_now(seconds: int):
 
 
 def _schedule_debounced_agent(text_body, sender_phone, lead, wa_message_id):
+    # On génère un jeton UNIQUE pour ce message précis
     token = str(uuid.uuid4())
     cache_key = _debounce_cache_key(sender_phone)
-    cache.set(cache_key, token, timeout=60)
+    
+    # On écrase le jeton précédent dans Redis. 
+    # Seul le DERNIER message aura un jeton qui matchera quand le worker s'exécutera.
+    cache.set(cache_key, token, timeout=AGENT_DEBOUNCE_SECONDS + 30)
+    
     logger.info(
-        "Jeton de délai défini | téléphone=%s | jeton=%s | délai=%ds",
+        "Debounce: Nouveau message reçu | téléphone=%s | jeton=%s | délai=%ds",
         sender_phone, token, AGENT_DEBOUNCE_SECONDS,
     )
     _dispatch_agent_q2(
@@ -330,7 +335,7 @@ def _dispatch_agent_q2(text_body, sender_phone, lead, wa_message_id="", debounce
             },
         )
         logger.info(
-            "Agent Kemora dépêché via Q2 | task_id=%s | phone=%s | lead_id=%s | delay=%ds",
+            "Agent Kemia dépêché via Q2 | task_id=%s | phone=%s | lead_id=%s | delay=%ds",
             task_id, sender_phone, lead_id, AGENT_DEBOUNCE_SECONDS,
         )
     except Exception as exc:
