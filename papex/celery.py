@@ -8,7 +8,10 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "papex.settings.prod")
 # Set the default Django settings module for the 'celery' program.
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'papex.settings')
 
-app = Celery('papex')
+app = Celery('papex',
+             broker=os.getenv('REDIS_URL'),
+             backend=os.getenv('REDIS_URL'),
+             include=['papex.tasks'])
 
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.

@@ -459,3 +459,21 @@ class SocialAccountLeadViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(lead)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class CreatorPViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = CreatorProfileSerializer
+    queryset = CreatorProfile.objects.all()
+
+    def get_queryset(self):
+        queryset = super().get_queryset().distinct()
+        service_id = self.request.query_params.get('service_id')
+        project_id = self.request.query_params.get('project_id')
+
+        if service_id:
+            queryset = queryset.filter(leads__client__contracts__service_id=service_id)
+
+        if project_id:
+            queryset = queryset.filter(leads__client__contracts__id=project_id)
+
+        return queryset
