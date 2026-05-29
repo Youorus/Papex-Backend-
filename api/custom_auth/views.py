@@ -1,3 +1,4 @@
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.middleware.csrf import get_token
@@ -13,6 +14,7 @@ logger = __import__("logging").getLogger(__name__)
 User = get_user_model()
 
 
+@sync_to_async
 def get_cookie_settings():
     """
     Centralise la configuration des cookies pour la compatibilité prod/local.
@@ -45,7 +47,7 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    def post(self, request):
+    async def post(self, request):
         email = request.data.get("email")
         password = request.data.get("password")
 
@@ -55,7 +57,7 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = authenticate(request, username=email, password=password)
+        user = await sync_to_async(authenticate)(request, username=email, password=password)
 
         if user is None:
             return Response(
@@ -63,8 +65,8 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        login(request, user)
-        update_last_login(None, user)
+        await sync_to_async(login)(request, user)
+        await sync_to_async(update_last_login)(None, user)
 
         response = Response(
             {
@@ -78,7 +80,7 @@ class LoginView(APIView):
             status=status.HTTP_200_OK,
         )
 
-        cookie_settings = get_cookie_settings()
+        cookie_settings = await get_cookie_settings()
 
         response.set_cookie(
             "csrftoken",
