@@ -14,7 +14,6 @@ logger = __import__("logging").getLogger(__name__)
 User = get_user_model()
 
 
-@sync_to_async
 def get_cookie_settings():
     """
     Centralise la configuration des cookies pour la compatibilité prod/local.
@@ -47,7 +46,7 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    async def post(self, request):
+    def post(self, request):
         email = request.data.get("email")
         password = request.data.get("password")
 
@@ -57,7 +56,7 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = await sync_to_async(authenticate)(request, username=email, password=password)
+        user = authenticate(request, username=email, password=password)
 
         if user is None:
             return Response(
@@ -65,8 +64,8 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        await sync_to_async(login)(request, user)
-        await sync_to_async(update_last_login)(None, user)
+        login(request, user)
+        update_last_login(None, user)
 
         response = Response(
             {
@@ -80,7 +79,7 @@ class LoginView(APIView):
             status=status.HTTP_200_OK,
         )
 
-        cookie_settings = await get_cookie_settings()
+        cookie_settings = get_cookie_settings()
 
         response.set_cookie(
             "csrftoken",
