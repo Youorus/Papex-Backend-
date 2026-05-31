@@ -1,8 +1,11 @@
+import pytest
 from rest_framework.test import APIClient
 from api.users.models import User
 from api.users.roles import UserRoles
+from api.creators.models import CreatorProfile
 
-def test_endpoints():
+@pytest.mark.django_db
+def test_stats_endpoints():
     print("Testing endpoints...")
     client = APIClient(HTTP_HOST='127.0.0.1')
     
@@ -23,7 +26,6 @@ def test_endpoints():
     client.force_authenticate(user=admin_user)
     
     # Get a creator ID
-    from api.creators.models import CreatorProfile
     creator = CreatorProfile.objects.first()
     creator_id = str(creator.id) if creator else "42411512-ccf3-4f61-875a-9b9220d43a01"
     
@@ -39,11 +41,6 @@ def test_endpoints():
         print(f"\nTesting {endpoint}...")
         response = client.get(endpoint)
         print(f"Status Code: {response.status_code}")
-        if response.status_code != 200:
-            print("Response Error:")
-            print(response.content.decode()[:1000])
-        else:
-            print("Response Data:")
-            print(response.json())
-
-test_endpoints()
+        assert response.status_code == 200, f"Endpoint {endpoint} failed with status {response.status_code}"
+        print("Response Data:")
+        print(response.json())
