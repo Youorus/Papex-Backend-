@@ -34,13 +34,19 @@ def generate_payment_status_report_pdf() -> bytes:
     
     # 1. Titre
     today = timezone.localdate()
-    elements.append(Paragraph(f"Rapport des Encours Clients - {today.strftime('%d/%m/%Y')}", title_style))
+    months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+    month_label = f"{months[today.month - 1]} {today.year}"
+    elements.append(Paragraph(f"Rapport des Échéances - {month_label}", title_style))
     elements.append(Spacer(1, 10))
 
     # 2. Données
     # On récupère les contrats non soldés
     contracts = Contract.objects.filter(is_cancelled=False).select_related("client__lead").prefetch_related("receipts")
     
+    today = timezone.localdate()
+    current_month = today.month
+    current_year = today.year
+
     data = [
         [
             Paragraph("<b>Client</b>", cell_style),
@@ -55,10 +61,23 @@ def generate_payment_status_report_pdf() -> bytes:
     total_receivable = 0
     active_count = 0
 
-    # Tri manuel par date d'échéance car c'est une propriété calculée ou dans les reçus
+    # 🎯 Filtrage par mois en cours (uniquement ceux dont l'échéance tombe ce mois-ci)
+    filtered_contracts = []
+    for c in contracts:
+        if c.is_fully_paid:
+            continue
+            
+        last_receipt = c.receipts.order_by('-payment_date').first()
+        if not last_receipt or not last_receipt.next_due_date:
+            continue
+            
+        if last_receipt.next_due_date.month == current_month and last_receipt.next_due_date.year == current_year:
+            filtered_contracts.append(c)
+
+    # Tri manuel par date d'échéance
     sorted_contracts = sorted(
-        [c for c in contracts if not c.is_fully_paid],
-        key=lambda x: (x.receipts.order_by('-payment_date').first().next_due_date if x.receipts.exists() and x.receipts.order_by('-payment_date').first().next_due_date else timezone.datetime.max.date())
+        filtered_contracts,
+        key=lambda x: x.receipts.order_by('-payment_date').first().next_due_date
     )
 
     for contract in sorted_contracts:
