@@ -14,6 +14,9 @@ from api.comments.models import Comment
 from api.contracts.models import Contract
 from api.payments.models import PaymentReceipt
 from api.leads_task.models import LeadTask
+from api.appointment.models import Appointment
+from api.documents.models import Document
+from api.whatsapp.models import WhatsAppMessage
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,9 @@ _pre_save_cache = {}
 @receiver(pre_save, sender=Contract)
 @receiver(pre_save, sender=PaymentReceipt)
 @receiver(pre_save, sender=LeadTask)
+@receiver(pre_save, sender=Appointment)
+@receiver(pre_save, sender=Document)
+@receiver(pre_save, sender=WhatsAppMessage)
 def audit_pre_save(sender, instance, **kwargs):
     if instance.pk:
         try:
@@ -41,6 +47,9 @@ def audit_pre_save(sender, instance, **kwargs):
 @receiver(post_save, sender=Contract)
 @receiver(post_save, sender=PaymentReceipt)
 @receiver(post_save, sender=LeadTask)
+@receiver(post_save, sender=Appointment)
+@receiver(post_save, sender=Document)
+@receiver(post_save, sender=WhatsAppMessage)
 def audit_post_save(sender, instance, created, **kwargs):
     old_instance = _pre_save_cache.pop(id(instance), None)
     actor = get_current_user()
@@ -71,6 +80,21 @@ def audit_post_save(sender, instance, created, **kwargs):
     elif isinstance(instance, LeadTask):
         lead = instance.lead
         event_code = "TASK_CREATED" if created else "TASK_UPDATED"
+    elif isinstance(instance, Appointment):
+        lead = instance.lead
+        event_code = "APPOINTMENT_PLANNED" if created else "APPOINTMENT_UPDATED"
+    elif isinstance(instance, Document):
+        lead = instance.client.lead
+        event_code = "DOCUMENT_UPLOADED" if created else "DOCUMENT_UPDATED"
+    elif isinstance(instance, WhatsAppMessage):
+        lead = instance.lead
+        if not created:
+            return  # On ne logue que la création (le message lui-même)
+        event_code = "WHATSAPP_SENT" if instance.is_outbound else "WHATSAPP_RECEIVED"
+        data = {
+            "body": instance.body[:100] + "..." if len(instance.body) > 100 else instance.body,
+            "type": instance.message_type
+        }
 
     if not lead:
         return
@@ -104,6 +128,9 @@ def audit_post_save(sender, instance, created, **kwargs):
 @receiver(post_delete, sender=Contract)
 @receiver(post_delete, sender=PaymentReceipt)
 @receiver(post_delete, sender=LeadTask)
+@receiver(post_delete, sender=Appointment)
+@receiver(post_delete, sender=Document)
+@receiver(post_delete, sender=WhatsAppMessage)
 def audit_post_delete(sender, instance, **kwargs):
     actor = get_current_user()
     
@@ -130,6 +157,15 @@ def audit_post_delete(sender, instance, **kwargs):
     elif isinstance(instance, LeadTask):
         lead = instance.lead
         event_code = "TASK_DELETED"
+    elif isinstance(instance, Appointment):
+        lead = instance.lead
+        event_code = "APPOINTMENT_DELETED"
+    elif isinstance(instance, Document):
+        lead = instance.client.lead
+        event_code = "DOCUMENT_DELETED"
+    elif isinstance(instance, WhatsAppMessage):
+        lead = instance.lead
+        event_code = "WHATSAPP_MESSAGE_DELETED"
 
     if not lead or not lead.pk:
         # Si le lead parent est aussi en train d'être supprimé (CASCADE), 

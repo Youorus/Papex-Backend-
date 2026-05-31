@@ -136,7 +136,7 @@ class ClientViewSet(viewsets.ModelViewSet):
             )
 
         # sauvegarde data (si besoin audit)
-        lead_data = LeadSerializer(lead).data
+        # lead_data = LeadSerializer(lead).data
 
         # 🔥 récupérer client AVANT delete
         client = Client.objects.filter(lead=lead).first()

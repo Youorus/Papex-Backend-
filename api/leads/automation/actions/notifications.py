@@ -1,6 +1,7 @@
 import logging
 
 from api.utils.email import send_html_email
+from api.leads_events.models import LeadEvent
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,12 @@ def send_welcome_email(lead):
         logger.info(
             "[send_welcome_email] Email envoyé → %s (lead_id=%s)",
             lead.email, lead.id,
+        )
+        LeadEvent.log(
+            lead=lead,
+            event_code="WELCOME_EMAIL_SENT",
+            actor=None,
+            data={"email": lead.email},
         )
     except Exception as e:
         logger.error(

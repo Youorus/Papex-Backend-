@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # Envoi SMS centralisé (ULTRA IMPORTANT)
 # ----------------------------------------------------------------
 
-def _send_sms(phone: str, message: str) -> None:
+def _send_sms(phone: str, message: str, lead=None) -> None:
     """
     Point d'envoi unique des SMS via OVH.
     - Normalise le numéro
@@ -50,6 +50,18 @@ def _send_sms(phone: str, message: str) -> None:
 
         logger.info("[sms] envoi réussi → %s", phone)
 
+        if lead:
+            from api.leads_events.models import LeadEvent
+            LeadEvent.log(
+                lead=lead,
+                event_code="SMS_SENT",
+                actor=None,
+                data={
+                    "phone": phone,
+                    "body_preview": message[:50] + "..." if len(message) > 50 else message
+                }
+            )
+
     except Exception as e:
         logger.error("[sms] Échec envoi à %s : %s", phone, str(e))
 
@@ -64,17 +76,18 @@ def send_appointment_confirmation_sms(lead) -> None:
     _send_sms(
         phone=lead.phone,
         message=message,
+        lead=lead,
     )
 
 
 def send_appointment_reminder_48h_sms(lead) -> None:
     message = tpl_appointment_reminder_48h(lead)
-    _send_sms(phone=lead.phone, message=message)
+    _send_sms(phone=lead.phone, message=message, lead=lead)
 
 
 def send_appointment_reminder_24h_sms(lead) -> None:
     message = tpl_appointment_reminder_24h(lead)
-    _send_sms(phone=lead.phone, message=message)
+    _send_sms(phone=lead.phone, message=message, lead=lead)
 
 
 # ============================================================
@@ -87,6 +100,7 @@ def send_appointment_reminder_sms(lead) -> None:
     _send_sms(
         phone=lead.phone,
         message=message,
+        lead=lead,
     )
 
 
@@ -100,6 +114,7 @@ def send_absent_urgency_sms(lead) -> None:
     _send_sms(
         phone=lead.phone,
         message=message,
+        lead=lead,
     )
 
 
@@ -116,6 +131,7 @@ def send_absent_followup_sms(lead, week: int = 1) -> None:
     _send_sms(
         phone=lead.phone,
         message=message,
+        lead=lead,
     )
 
 
@@ -129,6 +145,7 @@ def send_present_no_contract_sms(lead) -> None:
     _send_sms(
         phone=lead.phone,
         message=message,
+        lead=lead,
     )
 
 
@@ -142,6 +159,7 @@ def send_contract_signed_sms(lead) -> None:
     _send_sms(
         phone=lead.phone,
         message=message,
+        lead=lead,
     )
 
 
@@ -155,6 +173,7 @@ def send_confirm_presence_sms(lead) -> None:
     _send_sms(
         phone=lead.phone,
         message=message,
+        lead=lead,
     )
 
 
@@ -172,4 +191,5 @@ def send_dossier_status_updated_sms(lead) -> None:
     _send_sms(
         phone=lead.phone,
         message=message,
+        lead=lead,
     )

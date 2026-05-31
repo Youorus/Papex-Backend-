@@ -46,8 +46,8 @@ def cleanup_client_cascade_s3(client) -> dict:
         # 1️⃣ Documents du client
         if hasattr(client, 'documents'):
             for doc in client.documents.all():
-                if hasattr(doc, 'file_url') and doc.file_url:
-                    if delete_s3_file_safe('documents', doc.file_url, f"Document #{doc.pk}"):
+                if hasattr(doc, 'url') and doc.url:
+                    if delete_s3_file_safe('documents', doc.url, f"Document #{doc.pk}"):
                         stats['documents'] += 1
                         stats['total'] += 1
 

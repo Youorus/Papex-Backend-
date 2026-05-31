@@ -4,6 +4,7 @@ from django.conf import settings
 from api.sms.sender import send_sms
 from api.sms.utils import build_sms, normalize_phone
 from api.utils.email.config import send_html_email, _base_context
+from api.leads_events.models import LeadEvent
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,18 @@ class CommunicationDispatcher:
                 )
                 email_sent = True
                 logger.info(f"📧 Notification Email envoyée à {lead.email} (prefix: {template_prefix})")
+
+                # Log LeadEvent
+                LeadEvent.log(
+                    lead=lead,
+                    event_code="EMAIL_SENT",
+                    actor=None,
+                    data={
+                        "subject": subject,
+                        "template": template_prefix,
+                        "email": lead.email,
+                    },
+                )
             except Exception as e:
                 logger.error(f"❌ Erreur envoi Email ({template_prefix}) pour lead #{lead.id}: {e}")
 
@@ -60,6 +73,22 @@ class CommunicationDispatcher:
                     )
                     sms_sent = True
                     logger.info(f"📲 Notification SMS envoyée à {clean_phone}")
+
+                    # Log LeadEvent
+                    LeadEvent.log(
+                        lead=lead,
+                        event_code="SMS_SENT",
+                        actor=None,
+                        data={
+                            "template": template_prefix,
+                            "phone": clean_phone,
+                            "body_preview": (
+                                final_sms[:50] + "..."
+                                if len(final_sms) > 50
+                                else final_sms
+                            ),
+                        },
+                    )
                 else:
                     logger.warning(f"⚠️ Numéro de téléphone invalide pour lead #{lead.id}: {lead.phone}")
             except Exception as e:

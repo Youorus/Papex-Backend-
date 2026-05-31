@@ -41,6 +41,25 @@ def send_html_email(to_email, subject, template_name, context, attachments=None)
 
     msg.send()
 
+    # --- Audit Log (Automatique) ---
+    try:
+        from api.leads.models import Lead
+        from api.leads_events.models import LeadEvent
+        lead = context.get("user") or context.get("lead")
+        if isinstance(lead, Lead):
+            LeadEvent.log(
+                lead=lead,
+                event_code="EMAIL_SENT",
+                actor=None,
+                data={
+                    "subject": subject,
+                    "template": template_name,
+                    "to_email": to_email,
+                },
+            )
+    except Exception as e:
+        logger.error(f"❌ Erreur lors du log de l'événement email : {e}")
+
 
 # ================================
 # Branding : Papiers Express
