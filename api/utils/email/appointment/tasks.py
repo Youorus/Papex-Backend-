@@ -15,15 +15,22 @@ logger = logging.getLogger(__name__)
 def _run_send_appointment_created(appointment_id: int):
     from api.appointment.models import Appointment
     from api.utils.email.appointment.notifications import send_appointment_created_email
+    from api.utils.email.leads.tasks import send_visio_payment_task
+    from api.leads.constants import RDV_VISIO_CONFERENCE
 
     appointment = Appointment.objects.select_related("lead").filter(id=appointment_id).first()
 
     if appointment and appointment.lead and appointment.lead.email:
-        send_appointment_created_email(appointment.lead, appointment)
-        logger.info(
-            "📅 Email création RDV envoyé à %s (lead #%s)",
-            appointment.lead.email, appointment.lead.id
-        )
+        # ✅ Redirection vers le paiement si c'est une Visio
+        if appointment.lead.appointment_type == RDV_VISIO_CONFERENCE:
+            send_visio_payment_task(appointment.lead.id)
+            logger.info("💳 Redirection email Visio (Paiement) pour lead #%s", appointment.lead.id)
+        else:
+            send_appointment_created_email(appointment.lead, appointment)
+            logger.info(
+                "📅 Email création RDV envoyé à %s (lead #%s)",
+                appointment.lead.email, appointment.lead.id
+            )
     else:
         logger.warning("❌ RDV non envoyé : lead ou email manquant pour appointment #%s", appointment_id)
 
@@ -31,15 +38,22 @@ def _run_send_appointment_created(appointment_id: int):
 def _run_send_appointment_updated(appointment_id: int):
     from api.appointment.models import Appointment
     from api.utils.email.appointment.notifications import send_appointment_updated_email
+    from api.utils.email.leads.tasks import send_visio_payment_task
+    from api.leads.constants import RDV_VISIO_CONFERENCE
 
     appointment = Appointment.objects.select_related("lead").filter(id=appointment_id).first()
 
     if appointment and appointment.lead and appointment.lead.email:
-        send_appointment_updated_email(appointment.lead, appointment)
-        logger.info(
-            "✏️ Email modification RDV envoyé à %s (lead #%s)",
-            appointment.lead.email, appointment.lead.id
-        )
+        # ✅ Redirection vers le paiement si le type a été changé en Visio
+        if appointment.lead.appointment_type == RDV_VISIO_CONFERENCE:
+            send_visio_payment_task(appointment.lead.id)
+            logger.info("💳 Redirection email Visio (Update/Paiement) pour lead #%s", appointment.lead.id)
+        else:
+            send_appointment_updated_email(appointment.lead, appointment)
+            logger.info(
+                "✏️ Email modification RDV envoyé à %s (lead #%s)",
+                appointment.lead.email, appointment.lead.id
+            )
     else:
         logger.warning("❌ RDV modifié non envoyé : lead ou email manquant pour appointment #%s", appointment_id)
 
