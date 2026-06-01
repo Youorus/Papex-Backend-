@@ -17,6 +17,7 @@ from api.utils.email.leads.notifications import (
     send_jurist_assigned_email,
     send_appointment_absent_email,
     send_appointment_reminder_email,
+    send_visio_payment_email,
 )
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,16 @@ def _run_send_appointment_reminder(lead_id: int, **kwargs):
         logger.warning("⏰ Lead #%s n'a pas d'email - reminder ignoré", lead.id)
 
 
+def _run_send_visio_payment(lead_id: int, **kwargs):
+    """Worker - Email de paiement visio"""
+    lead = _get_lead(lead_id, "email_visio_payment")
+    if lead and lead.email:
+        send_visio_payment_email(lead)
+        logger.info("💳 Paiement visio envoyé → %s (lead #%s)", lead.email, lead.id)
+    elif lead and not lead.email:
+        logger.warning("💳 Lead #%s n'a pas d'email - paiement visio ignoré", lead.id)
+
+
 # ================================================================
 # DISPATCHERS (API PUBLIQUE)
 # ================================================================
@@ -219,6 +230,19 @@ def send_appointment_reminder_email_task(lead_id: int, countdown: int = 0):
 
     async_task(
         "api.utils.email.leads.tasks._run_send_appointment_reminder",
+        lead_id,
+        **kwargs,
+    )
+
+
+def send_visio_payment_task(lead_id: int, countdown: int = 0):
+    """Planifie l'envoi d'email de paiement visio"""
+    kwargs = {"group": "emails"}
+    if countdown:
+        kwargs["scheduled"] = timezone.now() + timedelta(seconds=countdown)
+
+    async_task(
+        "api.utils.email.leads.tasks._run_send_visio_payment",
         lead_id,
         **kwargs,
     )

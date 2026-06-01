@@ -171,7 +171,10 @@ def _update_existing_lead_appointment(lead, parsed_date, appointment_type: str, 
     """
     from api.leads_events.models import LeadEvent
     from api.sms.tasks import send_appointment_confirmation_sms_task
-    from api.utils.email.leads.tasks import send_appointment_confirmation_task
+    from api.utils.email.leads.tasks import (
+        send_appointment_confirmation_task,
+        send_visio_payment_task
+    )
 
     old_date = lead.appointment_date
     old_type = getattr(lead, "appointment_type", None)
@@ -204,10 +207,13 @@ def _update_existing_lead_appointment(lead, parsed_date, appointment_type: str, 
     except Exception as exc:
         logger.exception("Erreur envoi SMS confirmation (update RDV) lead #%d : %s", lead.pk, exc)
 
-    # Email de confirmation si disponible
+    # Email de confirmation / paiement visio
     if lead.email:
         try:
-            send_appointment_confirmation_task(lead.id)
+            if appointment_type == "VISIO_CONFERENCE":
+                send_visio_payment_task(lead.id)
+            else:
+                send_appointment_confirmation_task(lead.id)
         except Exception as exc:
             logger.exception("Erreur envoi email confirmation (update RDV) lead #%d : %s", lead.pk, exc)
 
@@ -309,6 +315,10 @@ def create_lead_from_kemora(
             }
 
             with transaction.atomic():
+                from api.utils.email.leads.tasks import (
+                    send_appointment_confirmation_task,
+                    send_visio_payment_task
+                )
                 lead = create_lead_with_side_effects(
                     actor=None,
                     event_source="whatsapp_agent_kemora",
@@ -323,6 +333,10 @@ def create_lead_from_kemora(
                 # 🚀 AJOUT DU COMMENTAIRE DE SYNTHÈSE PROFESSIONNEL
                 if situation_summary:
                     _add_situation_summary_comment(lead, situation_summary)
+
+                # ✅ Envoi email spécifique visio si besoin
+                if effective_email and appointment_type == "VISIO_CONFERENCE":
+                    send_visio_payment_task(lead.id)
 
             return {
                 "status": "created",

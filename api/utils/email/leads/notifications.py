@@ -134,3 +134,21 @@ def send_jurist_assigned_email(lead, jurist):
         template_name="email/leads/jurist_assigned.html",
         context=context,
     )
+
+
+def send_visio_payment_email(lead):
+    """
+    Envoyé lorsqu'un lead valide un RDV en visioconférence.
+    Contient le lien PayPal pour le paiement de 50€.
+    """
+    context = _build_context(
+        lead,
+        dt=lead.appointment_date,
+    )
+
+    return send_html_email(
+        to_email=lead.email,
+        subject="Paiement de votre consultation en visioconférence – Papiers Express",
+        template_name="email/leads/visio_payment.html",
+        context=context,
+    )
