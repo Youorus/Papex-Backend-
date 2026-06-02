@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 def handle_lead_created(event):
     lead = event.lead
+    event_data = event.data or {}
 
     # 1. Mise à jour du statut vers "RDV à confirmer"
     status = LeadStatus.objects.get(code=RDV_A_CONFIRMER)
@@ -23,13 +24,12 @@ def handle_lead_created(event):
     # 2. SMS Confirmation Immédiate
     send_appointment_confirmation_sms_task(lead.id)
 
-    # 3. EMAIL Confirmation Immédiate (AJOUTÉ)
-    # On vérifie si le lead a un email avant de lancer la tâche pour économiser des ressources
-    if lead.email:
+    # 3. EMAIL Confirmation (sauf si désactivé par l'event)
+    if event_data.get("skip_email_confirmation"):
+        logger.info("[handle_lead_created] Envoi d'email ignoré (skip_email_confirmation=True) pour lead #%s", lead.id)
+    elif lead.email:
         send_appointment_confirmation_task(lead.id)
     else:
         logger.warning("[handle_lead_created] Lead #%s n'a pas d'email, envoi annulé.", lead.id)
 
-
-
-    logger.info("[handle_lead_created] Automation complète (SMS + Email) pour lead #%s", lead.id)
+    logger.info("[handle_lead_created] Automation complète pour lead #%s", lead.id)

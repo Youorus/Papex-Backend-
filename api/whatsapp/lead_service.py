@@ -229,6 +229,7 @@ def create_lead_from_kemora(
     appointment_date: str,
     appointment_type: str = "presentiel",
     situation_summary: str = "",
+    promo_code: Optional[str] = None,
 ) -> dict:
     """
     Crée (ou met à jour) un Lead depuis les données collectées par Kemia.
@@ -269,6 +270,25 @@ def create_lead_from_kemora(
         if not parsed_date:
             return {"status": "error", "error": "appointment_date manquante"}
 
+        # ── Promo Code ────────────────────────────────────────────────────────
+        promo_code_obj = None
+        creator_profile = None
+        if promo_code:
+            from api.creators.models import PromoCode
+            try:
+                promo_code_obj = PromoCode.objects.select_related("creator").get(
+                    code__iexact=promo_code.strip(),
+                    status=PromoCode.Status.ACTIVE
+                )
+                creator_profile = promo_code_obj.creator
+                # Ajoute une note à la synthèse pour le juriste
+                summary_addition = f"Code promo appliqué : {promo_code_obj.code} ({creator_profile.user.get_full_name()})"
+                situation_summary = f"{situation_summary}\n{summary_addition}".strip()
+
+            except PromoCode.DoesNotExist:
+                logger.warning("Code promo fourni par Kemia introuvable ou inactif: %s", promo_code)
+                # On ne bloque pas la création, on log simplement.
+
         # ── Lead déjà existant ? ──────────────────────────────────────────────
         phone_suffix = effective_phone[-9:] if len(effective_phone) >= 9 else effective_phone
         existing = (
@@ -284,6 +304,10 @@ def create_lead_from_kemora(
             if existing:
                 with transaction.atomic():
                     _update_existing_lead_appointment(existing, parsed_date, appointment_type, situation_summary)
+                    if promo_code_obj:
+                        existing.promo_code = promo_code_obj
+                        existing.creator_profile = creator_profile
+                        existing.save(update_fields=["promo_code", "creator_profile"])
                     _migrate_whatsapp_context(sender_phone, existing)
 
                 return {
@@ -312,31 +336,38 @@ def create_lead_from_kemora(
                 "source":            lead_source,
                 "appointment_date":  parsed_date,
                 "appointment_type":  appointment_type,
+                "promo_code":        promo_code_obj,
+                "creator_profile":   creator_profile,
             }
 
             with transaction.atomic():
-                from api.utils.email.leads.tasks import (
-                    send_appointment_confirmation_task,
-                    send_visio_payment_task
-                )
+                from api.utils.email.leads.tasks import send_visio_payment_task
+                
+                # On désactive la confirmation email standard pour la gérer nous-mêmes
                 lead = create_lead_with_side_effects(
                     actor=None,
                     event_source="whatsapp_agent_kemora",
                     event_data={
                         "sender_phone": sender_phone,
-                        "channel":      "whatsapp",
+                        "channel": "whatsapp",
+                        "skip_email_confirmation": True, 
                     },
                     lead_kwargs=lead_kwargs,
                 )
                 _migrate_whatsapp_context(sender_phone, lead)
                 
-                # 🚀 AJOUT DU COMMENTAIRE DE SYNTHÈSE PROFESSIONNEL
+                # AJOUT DU COMMENTAIRE DE SYNTHÈSE PROFESSIONNEL
                 if situation_summary:
                     _add_situation_summary_comment(lead, situation_summary)
 
-                # ✅ Envoi email spécifique visio si besoin
-                if effective_email and appointment_type == "VISIO_CONFERENCE":
-                    send_visio_payment_task(lead.id)
+                # Envoi manuel de l'email correct (paiement ou confirmation)
+                if effective_email:
+                    if appointment_type == "VISIO_CONFERENCE":
+                        send_visio_payment_task(lead.id)
+                    else:
+                        # Si ce n'est pas une visio, on envoie la confirmation classique
+                        from api.utils.email.leads.tasks import send_appointment_confirmation_task
+                        send_appointment_confirmation_task(lead.id)
 
             return {
                 "status": "created",
