@@ -42,6 +42,7 @@ class IsAdminOrCreator(BasePermission):
         return request.user and request.user.is_authenticated
 
     def has_object_permission(self, request, view, obj):
+        from api.creators.models import CreatorProfile
         user = request.user
         
         # Admin / Staff

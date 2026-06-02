@@ -22,7 +22,7 @@ async def check_websocket():
     """
     print("🌐 Checking WebSocket...")
 
-    ws_url = "ws://127.0.0.1:8001/ws/health/"
+    ws_url = "ws://127.0.0.1:8002/ws/health/"
 
     try:
         async with websockets.connect(ws_url) as ws:
@@ -198,7 +198,7 @@ def main():
     uvicorn.run(
         "papex.asgi:application",
         host="0.0.0.0",
-        port=8001,
+        port=8002,
         reload=True,
     )
 

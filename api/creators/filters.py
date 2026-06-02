@@ -95,8 +95,8 @@ class SocialAccountLeadFilter(django_filters.FilterSet):
 
 class CreatorKpiFilter(django_filters.FilterSet):
     leads_date_range = django_filters.DateFromToRangeFilter(
-        field_name="leads__created_at",
         label="Date range for leads",
+        method="filter_noop",
     )
     creator = django_filters.ModelMultipleChoiceFilter(
         queryset=CreatorProfile.objects.all(),
@@ -108,6 +108,9 @@ class CreatorKpiFilter(django_filters.FilterSet):
         choices=CreatorProfile.Status.choices,
         label="Creator status",
     )
+
+    def filter_noop(self, queryset, name, value):
+        return queryset
 
     class Meta:
         model = CreatorProfile

@@ -20,6 +20,8 @@ from .prompt import (
     GEMINI_MODEL_OVERRIDE,
     LEAD_DATA_MARKER,
     LEAD_DATA_END,
+    ESCALATE_MARKER,
+    ESCALATE_END,
 )
 from ..models import WhatsAppMessage, WhatsAppConversationSettings
 from ..utils import (
@@ -114,6 +116,10 @@ def _build_prompt(
         f"APRÈS-DEMAIN: {jours[apres_demain.weekday()]} {apres_demain.day} {mois[apres_demain.month - 1]} {apres_demain.year} — "
         f"Utilise ces dates pour résoudre 'demain', 'après-demain', etc. Toujours demander confirmation.]"
     )
+
+    # Injecte le lien de paiement pour que le prompt puisse l'utiliser
+    if settings.PAYPAL_VISIO_LINK:
+        parts.append(f"[PAYPAL_LINK: {settings.PAYPAL_VISIO_LINK}]")
 
     if lead:
         crm = ["[CRM: CLIENT CONNU — utilise ces données, ne les redemande pas :"]
@@ -253,15 +259,30 @@ def _extract_lead_data(text: str) -> Optional[dict]:
         return None
 
 
-def _strip_lead_marker(text: str) -> str:
-    if LEAD_DATA_MARKER not in text:
-        return text
+def _extract_escalation_reason(text: str) -> Optional[str]:
+    if ESCALATE_MARKER not in text:
+        return None
     try:
-        start = text.index(LEAD_DATA_MARKER)
-        end = text.index(LEAD_DATA_END, start) + len(LEAD_DATA_END)
-        return (text[:start] + text[end:]).strip()
+        start = text.index(ESCALATE_MARKER) + len(ESCALATE_MARKER)
+        end   = text.index(ESCALATE_END, start)
+        reason = text[start:end].strip().strip('"').strip("'")
+        return reason
     except ValueError:
-        return text
+        return None
+
+
+def _strip_markers(text: str) -> str:
+    """Retire tous les marqueurs système de la réponse finale client."""
+    clean = text
+    for marker, end in [(LEAD_DATA_MARKER, LEAD_DATA_END), (ESCALATE_MARKER, ESCALATE_END)]:
+        if marker in clean:
+            try:
+                start = clean.index(marker)
+                end_idx = clean.index(end, start) + len(end)
+                clean = (clean[:start] + clean[end_idx:]).strip()
+            except ValueError:
+                pass
+    return clean
 
 
 # ─── Validation lead data ─────────────────────────────────────────────────────
@@ -469,7 +490,14 @@ def generate_agent_reply(
                     lead_data.get("appointment_date"),
                 )
 
-        clean_reply = _strip_lead_marker(full_reply)
+        # ── Gestion de l'escalade ─────────────────────────────────────────────
+        escalation_reason = _extract_escalation_reason(full_reply)
+        if escalation_reason:
+            from api.utils.email.internal_alerts import send_ai_escalation_alert
+            send_ai_escalation_alert(lead=lead, reason=escalation_reason, sender_phone=sender_phone)
+            logger.info("Kemia — Escalade déclenchée : %s", escalation_reason)
+
+        clean_reply = _strip_markers(full_reply)
 
         logger.info(
             "Kemia — réponse | modèle=%s first=%s chars=%d lead_dispatched=%s lead_status=%s",

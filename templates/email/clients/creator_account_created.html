@@ -1,0 +1,24 @@
+{% extends "../_layout_email.html" %}
+
+{% block title %}Votre espace Ambassadeur est prêt !{% endblock %}
+
+{% block email_content %}
+<p>Bonjour {{ user.first_name }},</p>
+
+<p>Félicitations ! Votre espace Ambassadeur Papiers Express est désormais actif.</p>
+
+<p>Vous pouvez vous connecter à votre tableau de bord en utilisant les identifiants suivants :</p>
+
+<ul>
+    <li><strong>Email :</strong> {{ user.email }}</li>
+    <li><strong>Mot de passe :</strong> {{ password }}</li>
+</ul>
+
+<p>Nous vous recommandons de changer votre mot de passe après votre première connexion.</p>
+
+<p>
+    <a href="https://app.papiers-express.fr/login" class="button">Accéder à mon espace</a>
+</p>
+
+<p>L'équipe Papiers Express</p>
+{% endblock %}

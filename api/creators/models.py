@@ -59,6 +59,15 @@ class CreatorProfile(models.Model):
     def __str__(self):
         return self.user.get_full_name() or self.user.email
 
+    def save(self, *args, **kwargs):
+        # If status is DISABLED, we also deactivate the associated user
+        if self.status == self.Status.DISABLED:
+            if self.user.is_active:
+                self.user.is_active = False
+                self.user.save(update_fields=['is_active'])
+        
+        super().save(*args, **kwargs)
+
 
 class PromoCode(models.Model):
     class Status(models.TextChoices):

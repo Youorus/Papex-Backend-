@@ -1,0 +1,38 @@
+{% extends "email/_layout_email.html" %}
+
+{% block subject %}Paiement de votre consultation en visioconférence – {{ company.name }}{% endblock %}
+{% block title %}Finalisez votre rendez-vous{% endblock %}
+
+{% block email_content %}
+
+<p style="margin:0 0 20px;font-size:16px;color:#334155;">
+  Bonjour {{ user.first_name|capfirst }},
+  <br><br>
+  Nous avons bien enregistré votre demande de rendez-vous en <strong>visioconférence</strong> prévue le <strong>{{ appointment.date }}</strong> à <strong>{{ appointment.time }}</strong>.
+</p>
+
+<p style="margin:0 0 20px;font-size:16px;color:#334155;">
+  Cette session est une opportunité privilégiée d'échanger directement avec un <strong>juriste expert en droit des étrangers</strong>. Il sera à votre entière écoute pour analyser votre situation, répondre à toutes vos interrogations et vous orienter vers les meilleures démarches possibles.
+</p>
+
+<p style="margin:0 0 20px;font-size:15px;color:#475569;background-color:#f8fafc;padding:15px;border-radius:8px;border-left:4px solid #002395;">
+  Les frais de consultation de <strong>50,00 €</strong> couvrent l'expertise du juriste, la mobilisation de notre infrastructure sécurisée de visioconférence, ainsi que les frais administratifs et fiscaux liés à la gestion de votre dossier.
+</p>
+
+<p style="margin:25px 0;text-align:center;">
+  <a href="https://www.paypal.com/ncp/payment/R7P25PNBCNGRL" 
+     style="background-color:#2563eb;color:#ffffff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);">
+    Payer mon rendez-vous
+  </a>
+</p>
+
+<p style="margin:20px 0;font-size:15px;color:#334155;">
+  <strong>Note importante :</strong> Une fois le paiement effectué, notre équipe validera votre créneau et vous transmettra personnellement le lien de connexion sécurisé pour la visioconférence. Vous serez contacté sous peu pour finaliser cette étape.
+</p>
+
+<p style="margin-top:26px;font-size:15px;color:#334155;">
+  Merci pour votre confiance,<br>
+  <strong>L’équipe {{ company.name }}</strong>
+</p>
+
+{% endblock %}

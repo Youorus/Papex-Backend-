@@ -156,7 +156,8 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="aggregate-kpis", permission_classes=[IsAdminOrStaff])
     def aggregate_kpis(self, request):
         self.filterset_class = CreatorKpiFilter
-        queryset = self.get_queryset()
+        # Get all creators for stats, ignoring the status filter from the request for the base queryset
+        queryset = CreatorProfile.objects.all()
         
         # Instantiate filterset manually to get cleaned_data
         filterset = self.filterset_class(request.GET, queryset=queryset)
@@ -165,8 +166,9 @@ class CreatorProfileViewSet(viewsets.ModelViewSet):
         
         filtered_queryset = filterset.qs
 
-        start_date = filterset.form.cleaned_data.get("leads_date_range_after")
-        end_date = filterset.form.cleaned_data.get("leads_date_range_before")
+        date_range = filterset.form.cleaned_data.get("leads_date_range")
+        start_date = date_range.start if date_range else None
+        end_date = date_range.stop if date_range else None
 
         contracts_filter = Q(client__lead__promo_code__isnull=False, is_cancelled=False)
         if start_date:
@@ -283,6 +285,7 @@ class PromoCodeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrCreator]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ["creator"]
     search_fields = ["code", "creator__user__email", "creator__user__first_name"]
     ordering_fields = ["created_at", "valid_until", "commission_rate", "bonus_amount"]
     ordering = ["-created_at"]

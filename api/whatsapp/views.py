@@ -248,32 +248,14 @@ def _process_incoming_message(msg: dict):
         )
         return
 
-    # Confirmation automatique de RDV via mot-clé
+    # Si le message contient "confirme" ou "oui", on met à jour le statut du lead.
+    # C'est une action métier qui ne doit PAS dépendre de l'agent IA.
     if lead and text_body and ("oui" in text_body.lower() or "confirme" in text_body.lower()):
-        try:
-            status_confirme = LeadStatus.objects.get(code=RDV_CONFIRME)
-            old_status = lead.status.code if lead.status else None
-            lead.status = status_confirme
-            lead.save(update_fields=["status"])
-            logger.info(
-                "Statut lead mis à jour via confirmation WhatsApp | lead_id=%s | %s → %s",
-                lead.id, old_status, status_confirme.code,
-            )
-        except LeadStatus.DoesNotExist:
-            logger.error("LeadStatus RDV_CONFIRME introuvable")
-        except Exception as exc:
-            logger.exception("Échec mise à jour statut lead | lead_id=%s | error=%s", lead.id, exc)
+        _try_confirm_lead_status(lead)
 
-    # Vérification agent_enabled
-    agent_active = WhatsAppConversationSettings.is_agent_enabled(lead=lead, phone=wa_phone)
-    if not agent_active:
-        logger.info(
-            "Agent désactivé — pas de réponse automatique | phone=%s | lead_id=%s",
-            wa_phone, getattr(lead, "id", None),
-        )
-        return
-
-    _schedule_debounced_agent(
+    # L'agent IA est dépêché de manière asynchrone pour ne pas bloquer la réponse au webhook.
+    # La logique de debounce est gérée à l'intérieur de cette fonction.
+    _dispatch_agent_q2(
         text_body=text_body,
         sender_phone=wa_phone,
         lead=lead,
@@ -281,7 +263,27 @@ def _process_incoming_message(msg: dict):
     )
 
 
-# ─── Debounce ─────────────────────────────────────────────────────────────────
+def _try_confirm_lead_status(lead: Lead):
+    """Tente de passer le statut d'un lead à RDV_CONFIRME."""
+    try:
+        status_confirme = LeadStatus.objects.get(code=RDV_CONFIRME)
+        if lead.status_id != status_confirme.id:
+            old_status = lead.status.code if lead.status else "N/A"
+            lead.status = status_confirme
+            lead.save(update_fields=["status"])
+            logger.info(
+                "Statut lead mis à jour via confirmation WhatsApp | lead_id=%s | %s → %s",
+                lead.id, old_status, status_confirme.code,
+            )
+    except LeadStatus.DoesNotExist:
+        logger.error("LeadStatus RDV_CONFIRME introuvable, impossible de confirmer le statut.")
+    except Exception as exc:
+        logger.exception(
+            "Échec mise à jour statut lead | lead_id=%s | error=%s", lead.id, exc
+        )
+
+
+# ─── Debounce & Dispatch ──────────────────────────────────────────────────────
 
 def _debounce_cache_key(sender_phone: str) -> str:
     return f"kemora_debounce_{sender_phone}"
@@ -293,7 +295,16 @@ def _eta_from_now(seconds: int):
     return timezone.now() + datetime.timedelta(seconds=seconds)
 
 
-def _schedule_debounced_agent(text_body, sender_phone, lead, wa_message_id):
+def _dispatch_agent_q2(text_body, sender_phone, lead, wa_message_id=""):
+    # Filet de sécurité : ne rien faire si l'agent est désactivé pour cette conversation.
+    agent_active = WhatsAppConversationSettings.is_agent_enabled(lead=lead, phone=sender_phone)
+    if not agent_active:
+        logger.info(
+            "Agent désactivé — pas de réponse automatique | phone=%s | lead_id=%s",
+            sender_phone, getattr(lead, "id", None),
+        )
+        return
+        
     # On génère un jeton UNIQUE pour ce message précis
     token = str(uuid.uuid4())
     cache_key = _debounce_cache_key(sender_phone)
@@ -306,16 +317,7 @@ def _schedule_debounced_agent(text_body, sender_phone, lead, wa_message_id):
         "Debounce: Nouveau message reçu | téléphone=%s | jeton=%s | délai=%ds",
         sender_phone, token, AGENT_DEBOUNCE_SECONDS,
     )
-    _dispatch_agent_q2(
-        text_body=text_body,
-        sender_phone=sender_phone,
-        lead=lead,
-        wa_message_id=wa_message_id,
-        debounce_token=token,
-    )
-
-
-def _dispatch_agent_q2(text_body, sender_phone, lead, wa_message_id="", debounce_token=""):
+    
     lead_id = getattr(lead, "id", None)
     try:
         from django_q.tasks import async_task
@@ -325,7 +327,7 @@ def _dispatch_agent_q2(text_body, sender_phone, lead, wa_message_id="", debounce
             sender_phone=sender_phone,
             lead_id=lead_id,
             wa_message_id=wa_message_id,
-            debounce_token=debounce_token,
+            debounce_token=token,
             q_options={
                 "task_name": f"kemora_{sender_phone[-8:]}",
                 "timeout": 120,
@@ -350,7 +352,7 @@ def _dispatch_agent_q2(text_body, sender_phone, lead, wa_message_id="", debounce
                 sender_phone=sender_phone,
                 lead_id=lead_id,
                 wa_message_id=wa_message_id,
-                debounce_token="",
+                debounce_token="",  # Pas de debounce en synchrone
             )
         except Exception as exc2:
             logger.exception(

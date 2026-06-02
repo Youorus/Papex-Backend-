@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from api.creators.models import CreatorProfile, SocialAccountLead, PromoCode, CreatorContract
 from api.users.roles import UserRoles
+from api.utils.email.config import send_html_email
 
 User = get_user_model()
 
@@ -78,6 +79,15 @@ class CreatorProfileCreateSerializer(serializers.ModelSerializer):
         }
 
         user = User.objects.create_user(**user_data, role=UserRoles.CREATOR)
+
+        # Envoi de l'email de bienvenue
+        send_html_email(
+            to_email=user.email,
+            subject="Votre espace Ambassadeur est prêt !",
+            template_name="email/clients/creator_account_created.html",
+            context={"user": user, "password": user_data["password"]},
+        )
+
         return CreatorProfile.objects.create(user=user, **validated_data)
 
 
@@ -135,7 +145,9 @@ class CreatorMiniSerializer(serializers.ModelSerializer):
 
 class CreatorContractSerializer(serializers.ModelSerializer):
     creator = CreatorMiniSerializer(read_only=True)
-    creator_id = serializers.UUIDField(write_only=True, source="creator")
+    creator_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=CreatorProfile.objects.all(), source="creator"
+    )
 
     class Meta:
         model = CreatorContract
@@ -152,7 +164,9 @@ class CreatorContractSerializer(serializers.ModelSerializer):
 
 class PromoCodeSerializer(serializers.ModelSerializer):
     creator = CreatorMiniSerializer(read_only=True)
-    creator_id = serializers.UUIDField(write_only=True, source="creator")
+    creator_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=CreatorProfile.objects.all(), source="creator"
+    )
 
     class Meta:
         model = PromoCode
