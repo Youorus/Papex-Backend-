@@ -1,91 +1,50 @@
 import os
+import sys
 import django
 from django.utils import timezone
 
-# 🔧 Initialisation Django
+# Add the project root to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Configure Django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "papex.settings.prod")
 django.setup()
 
 from api.leads.models import Lead
-from api.leads.constants import RDV_VISIO_CONFERENCE, ANNULE, PRESENT
-from api.utils.email.leads.notifications import send_visio_payment_email
+from api.utils.email.leads.tasks import send_visio_payment_task
 
-def run_mass_visio_payment_emails():
-    print("🔎 Recherche des leads avec RDV Visio programmés...")
-    
+def send_pending_visio_payments():
+    """
+    Identifie tous les rendez-vous en visio à venir et envoie l'e-mail de paiement.
+    """
     now = timezone.now()
     
-    # On cherche les leads :
-    # 1. Type de RDV = Visio
-    # 2. Date de RDV dans le futur
-    # 3. Email renseigné
-    # 4. Non annulés et non déjà présents
-    leads = Lead.objects.filter(
-        appointment_type=RDV_VISIO_CONFERENCE,
+    # On cherche les leads qui ont :
+    # 1. Un rendez-vous dans le futur.
+    # 2. Le type de rendez-vous est "VISIO_CONFERENCE".
+    # 3. Un email valide.
+    upcoming_visio_leads = Lead.objects.filter(
         appointment_date__gte=now,
-        email__isnull=False,
-    ).exclude(
-        status__code__in=[ANNULE, PRESENT]
-    ).exclude(
-        email=""
-    )
-    
-    total = leads.count()
-    print(f"📊 {total} lead(s) éligible(s) trouvé(s).")
-    
-    success_count = 0
-    error_count = 0
-    skipped_count = 0
-    
-    report = []
-    
-    for lead in leads:
-        print(f"📧 Envoi à {lead.first_name} {lead.last_name} ({lead.email})...")
+        appointment_type="VISIO_CONFERENCE",
+        email__isnull=False
+    ).exclude(email__exact='')
+
+    if not upcoming_visio_leads.exists():
+        print("✅ Aucun rendez-vous en visio à venir nécessitant un e-mail de paiement.")
+        return
+
+    print(f"📧 Trouvé {upcoming_visio_leads.count()} rendez-vous en visio à venir. Envoi des e-mails de paiement...")
+
+    count = 0
+    for lead in upcoming_visio_leads:
         try:
-            # On vérifie si on n'a pas déjà envoyé un mail de paiement visio aujourd'hui
-            # pour éviter le spam si on relance le script
-            from api.leads_events.models import LeadEvent
-            already_sent = LeadEvent.objects.filter(
-                lead=lead,
-                event_type__code="VISIO_PAYMENT_SENT", # On va logger cet event spécifique
-                occurred_at__date=now.date()
-            ).exists()
-            
-            if already_sent:
-                print(f"⏩ Déjà envoyé aujourd'hui pour #{lead.id}, skip.")
-                skipped_count += 1
-                continue
-
-            send_visio_payment_email(lead)
-            
-            # Log l'événement spécifique pour le suivi
-            LeadEvent.log(
-                lead=lead,
-                event_code="VISIO_PAYMENT_SENT",
-                actor=None,
-                data={"email": lead.email, "batch_run": True}
-            )
-            
-            success_count += 1
-            report.append(f"✅ SUCCÈS : {lead.first_name} {lead.last_name} (#{lead.id})")
+            print(f"  -> Envoi pour le lead #{lead.id} ({lead.first_name} {lead.last_name}) à {lead.email}...")
+            send_visio_payment_task(lead.id)
+            count += 1
         except Exception as e:
-            error_count += 1
-            print(f"❌ Erreur pour #{lead.id} : {e}")
-            report.append(f"❌ ERREUR : {lead.first_name} {lead.last_name} (#{lead.id}) - {str(e)}")
+            print(f"  ❌ Erreur lors de l'envoi pour le lead #{lead.id}: {e}")
 
-    print("\n" + "="*30)
-    print("      RAPPORT FINAL")
-    print("="*30)
-    print(f"Total éligibles : {total}")
-    print(f"Succès          : {success_count}")
-    print(f"Skippés         : {skipped_count}")
-    print(f"Erreurs         : {error_count}")
-    print("="*30)
-    
-    if report:
-        print("\nDétails :")
-        for line in report:
-            print(line)
+    print(f"✅ Terminé. {count} e-mails de paiement ont été mis en file d'attente pour envoi.")
 
 if __name__ == "__main__":
-    run_mass_visio_payment_emails()
+    send_pending_visio_payments()

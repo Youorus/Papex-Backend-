@@ -30,6 +30,7 @@ STATUSES_REQUIRING_APPOINTMENT = {RDV_CONFIRME, RDV_PLANIFIE}
 
 
 class LeadSerializer(serializers.ModelSerializer):
+    promo_code_details = serializers.SerializerMethodField()
 
     # =====================
     # FIELDS EXISTANTS
@@ -231,6 +232,7 @@ class LeadSerializer(serializers.ModelSerializer):
             "source",
             "source_display",
             "promo_code",
+            "promo_code_details",
         ]
 
         extra_kwargs = {
@@ -278,6 +280,14 @@ class LeadSerializer(serializers.ModelSerializer):
             if contract and contract.created_by:
                 return str(contract.created_by.id)
 
+        return None
+
+    def get_promo_code_details(self, obj):
+        if obj.promo_code and obj.creator_profile and hasattr(obj.creator_profile, 'user'):
+            return {
+                'code': obj.promo_code.code,
+                'creator_email': obj.creator_profile.user.email
+            }
         return None
 
     # =====================
@@ -365,3 +375,7 @@ class LeadSerializer(serializers.ModelSerializer):
             rep["last_reminder_sent"] = None
 
         return rep
+
+
+class LeadPromoCodeSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50, required=True, allow_blank=False)

@@ -339,9 +339,11 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         logger.warning("Dispatch lead ignoré — phone manquant | data=%s", data)
         return {"status": "error", "error": "phone manquant"}
 
+    promo_code = (data.get("promo_code") or "").strip() or None
+
     logger.info(
-        "Dispatch lead — %s %s | phone=%s | rdv=%s | type=%s | email=%s",
-        first_name, last_name, phone, appointment_date, appointment_type, email or "—",
+        "Dispatch lead — %s %s | phone=%s | rdv=%s | type=%s | email=%s | promo=%s",
+        first_name, last_name, phone, appointment_date, appointment_type, email or "—", promo_code or "—",
     )
 
     use_async = getattr(settings, "KEMORA_LEAD_ASYNC", False)
@@ -358,6 +360,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
                 sender_phone=sender_phone,
                 appointment_date=appointment_date,
                 appointment_type=appointment_type,
+                promo_code=promo_code,
                 q_options={
                     "task_name": f"kemora_lead_{sender_phone}",
                     "timeout": 60,
@@ -383,6 +386,7 @@ def _dispatch_lead_creation(data: dict, sender_phone: str) -> dict:
         sender_phone=sender_phone,
         appointment_date=appointment_date,
         appointment_type=appointment_type,
+        promo_code=promo_code,
     )
 
     logger.info(

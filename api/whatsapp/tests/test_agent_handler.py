@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from django.conf import settings
+import json
 
 from api.whatsapp.agent.handler import generate_agent_reply, trigger_agent_response
 from api.whatsapp.models import WhatsAppConversationSettings, WhatsAppMessage
@@ -151,3 +152,67 @@ def test_payment_confirmation_image_triggers_correct_flow(mock_get_gemini_client
         # Assert the client received the correct reassuring message
         assert "Merci beaucoup pour cette confirmation" in clean_reply
         assert "[[ESCALATE_REQUIRED:" not in clean_reply
+
+
+@patch('api.whatsapp.agent.handler._get_gemini_client')
+def test_promo_code_is_correctly_associated(mock_get_gemini_client, django_user_model):
+    """
+    Verify that if Kemia extracts a valid promo code, it gets correctly
+    associated with the lead in the database.
+    """
+    from api.creators.models import CreatorProfile, PromoCode
+    from api.whatsapp.lead_service import create_lead_from_kemora
+
+    # 1. Setup: Create a creator and a promo code
+    creator_user = django_user_model.objects.create(email='creator@test.com', first_name='Test', last_name='Creator')
+    creator_profile = CreatorProfile.objects.create(user=creator_user, status=CreatorProfile.Status.ACTIVE)
+    promo_code = PromoCode.objects.create(
+        creator=creator_profile,
+        code="KEMIA25",
+        status=PromoCode.Status.ACTIVE
+    )
+
+    # 2. Mock Gemini to return LEAD_DATA with the promo code
+    # This simulates Kemia understanding the user's message
+    mock_gemini_response = MagicMock()
+    lead_data_payload = {
+        "first_name": "John",
+        "last_name": "Doe",
+        "phone": "+33655555555",
+        "email": "john.doe@test.com",
+        "appointment_date": "2026-07-15T10:00:00+02:00",
+        "appointment_type": "presentiel",
+        "promo_code": "KEMIA25",
+        "situation_summary": "Test summary"
+    }
+    mock_gemini_response.text = f"Rendez-vous confirmé. [[LEAD_DATA:{json.dumps(lead_data_payload)}]]"
+    mock_gemini_client = MagicMock()
+    mock_gemini_client.models.generate_content.return_value = mock_gemini_response
+    mock_get_gemini_client.return_value = mock_gemini_client
+
+    # 3. Call the main function that processes the response
+    with patch('api.whatsapp.lead_service.create_lead_from_kemora', wraps=create_lead_from_kemora) as mock_create_lead:
+        _, lead_result = generate_agent_reply(
+            incoming_message="Bonjour, je veux un rdv, j'ai le code KEMIA25.",
+            sender_phone="+33655555555"
+        )
+
+        # 4. Assertions
+        # Check that the lead creation function was called with the promo code
+        mock_create_lead.assert_called_once()
+        call_kwargs = mock_create_lead.call_args.kwargs
+        assert call_kwargs.get("promo_code") == "KEMIA25"
+
+        # Check the database state
+        created_lead_id = lead_result.get("lead_id")
+        assert created_lead_id is not None
+        
+        final_lead = Lead.objects.get(id=created_lead_id)
+        assert final_lead.promo_code == promo_code
+        assert final_lead.creator_profile == creator_profile
+        
+        # Verify that the summary was updated for the jurist
+        from api.comments.models import Comment
+        comment = Comment.objects.get(lead=final_lead)
+        assert "Code promo appliqué : KEMIA25" in comment.content
+        assert "Test Creator" in comment.content
