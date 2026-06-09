@@ -78,3 +78,11 @@ class CanAssignLead(BasePermission):
             UserRoles.CONSEILLER,
             UserRoles.JURISTE,
         ]
+
+
+class CanDeleteLead(BasePermission):
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        return user.role in [UserRoles.ADMIN, UserRoles.ACCUEIL, UserRoles.JURISTE]

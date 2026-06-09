@@ -15,7 +15,7 @@ from api.booking.models import SlotQuota
 from api.lead_status.models import LeadStatus
 from api.leads.constants import RDV_CONFIRME, RDV_A_CONFIRMER, A_RAPPELER, ABSENT
 from api.leads.models import Lead
-from api.leads.permissions import IsLeadCreator, CanAssignLead
+from api.leads.permissions import IsLeadCreator, CanAssignLead, CanDeleteLead
 from api.leads.serializers import LeadSerializer
 from api.sms.tasks import send_appointment_confirmation_sms_task
 from api.users.models import User
@@ -89,6 +89,8 @@ class LeadViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         if self.action in ["assignment", "request_assignment"]:
             return [CanAssignLead()]
+        if self.action == "destroy":
+            return [CanDeleteLead()]
         return super().get_permissions()
 
     # =====================
