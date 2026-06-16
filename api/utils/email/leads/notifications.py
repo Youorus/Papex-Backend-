@@ -136,6 +136,23 @@ def send_jurist_assigned_email(lead, jurist):
     )
 
 
+def send_avocat_assigned_email(lead, avocat):
+    if not avocat.email:
+        return
+        
+    context = _build_context(
+        lead,
+        extra={"avocat": avocat},
+    )
+
+    return send_html_email(
+        to_email=avocat.email,
+        subject="Un nouveau dossier vous a été assigné – Papiers Express",
+        template_name="email/leads/avocat_assigned.html",
+        context=context,
+    )
+
+
 def send_visio_payment_email(lead):
     """
     Envoyé lorsqu'un lead valide un RDV en visioconférence.

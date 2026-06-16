@@ -82,6 +82,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         help_text=_("Adresse utilisée pour la connexion"),
     )
 
+    phone = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name=_("téléphone"),
+        help_text=_("Numéro de téléphone de l'utilisateur"),
+    )
+
     first_name = models.CharField(
         max_length=150, verbose_name=_("prénom"), help_text=_("Prénom de l'utilisateur")
     )

@@ -25,6 +25,7 @@ from api.sms.notifications.leads import (
     send_dossier_status_updated_sms,
     send_appointment_reminder_48h_sms,
     send_appointment_reminder_24h_sms,
+    send_avocat_assigned_sms,
 )
 
 # ✅ IMPORT DES EMAILS AJOUTÉ
@@ -155,6 +156,16 @@ def _run_send_dossier_status_updated_sms(lead_id: int, **kwargs):
     )
 
 
+def _run_send_avocat_assigned_sms(lead_id: int, avocat_id: int, **kwargs):
+    from api.users.models import User
+    lead = _get_lead(lead_id, "sms_avocat_assigned")
+    avocat = User.objects.filter(id=avocat_id).first()
+    if not lead or not avocat or not avocat.phone:
+        return
+    send_avocat_assigned_sms(lead, avocat)
+    logger.info("[sms_avocat_assigned] → %s (lead #%s)", avocat.phone, lead.id)
+
+
 # ================================================================
 # DISPATCHERS
 # ================================================================
@@ -251,6 +262,15 @@ def send_dossier_status_updated_sms_task(lead_id: int):
     async_task(
         "api.sms.tasks._run_send_dossier_status_updated_sms",
         lead_id,
+        group="sms",
+    )
+
+
+def send_avocat_assigned_sms_task(lead_id: int, avocat_id: int):
+    async_task(
+        "api.sms.tasks._run_send_avocat_assigned_sms",
+        lead_id,
+        avocat_id,
         group="sms",
     )
 

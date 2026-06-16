@@ -14,6 +14,7 @@ from api.sms.templates.leads import (
     tpl_dossier_status_updated,
     tpl_appointment_reminder_48h,
     tpl_appointment_reminder_24h,
+    tpl_avocat_assigned,
 
 )
 
@@ -190,6 +191,26 @@ def send_dossier_status_updated_sms(lead) -> None:
 
     _send_sms(
         phone=lead.phone,
+        message=message,
+        lead=lead,
+    )
+
+
+# ============================================================
+# 9. AVOCAT ASSIGNÉ
+# ============================================================
+
+def send_avocat_assigned_sms(lead, avocat) -> None:
+    """
+    Envoyé à l'avocat lorsqu'un dossier lui est assigné.
+    """
+    if not avocat.phone:
+        return
+
+    message = tpl_avocat_assigned(lead)
+
+    _send_sms(
+        phone=avocat.phone,
         message=message,
         lead=lead,
     )

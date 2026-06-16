@@ -114,3 +114,13 @@ def tpl_contract_signed(lead) -> str:
         f"Notre Juriste s'occupe de votre démarche en France."
     )
     return build_sms(msg)
+
+
+def tpl_avocat_assigned(lead) -> str:
+    msg = (
+        f"{COMPANY_NAME}\n"
+        f"Me., un nouveau dossier vous a été assigné.\n"
+        f"Lead : {lead.first_name} {lead.last_name}.\n"
+        f"Connectez-vous à votre espace."
+    )
+    return build_sms(msg)

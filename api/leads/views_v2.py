@@ -11,6 +11,10 @@ from api.leads.models import Lead
 from api.leads.serializers import LeadSerializer
 from api.leads_events.models import LeadEvent
 from api.users.roles import UserRoles
+from api.users.models import User
+
+from api.utils.email.leads.tasks import send_avocat_assigned_notification_task
+from api.sms.tasks import send_avocat_assigned_sms_task
 
 
 class LeadViewSetV2(viewsets.ModelViewSet):
@@ -193,6 +197,11 @@ class LeadViewSetV2(viewsets.ModelViewSet):
 
         lead.assigned_to.set(user_ids)
 
+        users_to_assign = User.objects.filter(id__in=user_ids, role=UserRoles.AVOCAT)
+        for avocat in users_to_assign:
+            send_avocat_assigned_sms_task(lead.id, avocat.id)
+            send_avocat_assigned_notification_task(lead.id, avocat.id)
+
         return Response({"success": True})
 
     # ==========================
@@ -226,9 +235,13 @@ class LeadViewSetV2(viewsets.ModelViewSet):
             return Response({"detail": "lead_ids et user_ids doivent être des listes"}, status=400)
 
         leads = self.get_queryset().filter(id__in=lead_ids)
+        users_to_assign = list(User.objects.filter(id__in=user_ids, role=UserRoles.AVOCAT))
 
         for lead in leads:
             lead.assigned_to.set(user_ids)
+            for avocat in users_to_assign:
+                send_avocat_assigned_sms_task(lead.id, avocat.id)
+                send_avocat_assigned_notification_task(lead.id, avocat.id)
 
         return Response({"success": True, "updated": leads.count()})
 

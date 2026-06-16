@@ -15,6 +15,7 @@ from api.utils.email.leads.notifications import (
     send_dossier_status_email,
     send_formulaire_email,
     send_jurist_assigned_email,
+    send_avocat_assigned_email,
     send_appointment_absent_email,
     send_appointment_reminder_email,
     send_visio_payment_email,
@@ -107,6 +108,22 @@ def _run_send_jurist_assigned_notification(lead_id: int, jurist_id: int, **kwarg
         logger.warning("📩 Lead #%s n'a pas d'email - assignation juriste ignorée", lead.id)
     elif lead and not jurist:
         logger.warning("📩 Juriste #%s introuvable - assignation ignorée", jurist_id)
+
+
+def _run_send_avocat_assigned_notification(lead_id: int, avocat_id: int, **kwargs):
+    """Worker - Notification assignation avocat"""
+    from api.users.models import User
+
+    lead = _get_lead(lead_id, "email_avocat")
+    avocat = User.objects.filter(id=avocat_id).first()
+
+    if lead and avocat and avocat.email:
+        send_avocat_assigned_email(lead, avocat)
+        logger.info("📩 Avocat %s assigné → Email envoyé à l'avocat (lead #%s)", avocat.email, lead.id)
+    elif not avocat:
+        logger.warning("📩 Avocat #%s introuvable - assignation ignorée", avocat_id)
+    elif not avocat.email:
+        logger.warning("📩 Avocat #%s n'a pas d'email - assignation ignorée", avocat_id)
 
 
 def _run_send_appointment_absent(lead_id: int, **kwargs):
@@ -205,6 +222,20 @@ def send_jurist_assigned_notification_task(lead_id: int, jurist_id: int, countdo
         "api.utils.email.leads.tasks._run_send_jurist_assigned_notification",
         lead_id,
         jurist_id,
+        **kwargs,
+    )
+
+
+def send_avocat_assigned_notification_task(lead_id: int, avocat_id: int, countdown: int = 0):
+    """Planifie la notification d'assignation d'avocat"""
+    kwargs = {"group": "emails"}
+    if countdown:
+        kwargs["scheduled"] = timezone.now() + timedelta(seconds=countdown)
+
+    async_task(
+        "api.utils.email.leads.tasks._run_send_avocat_assigned_notification",
+        lead_id,
+        avocat_id,
         **kwargs,
     )
 

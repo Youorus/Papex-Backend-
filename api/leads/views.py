@@ -17,7 +17,7 @@ from api.leads.constants import RDV_CONFIRME, RDV_A_CONFIRMER, A_RAPPELER, ABSEN
 from api.leads.models import Lead
 from api.leads.permissions import IsLeadCreator, CanAssignLead, CanDeleteLead
 from api.leads.serializers import LeadSerializer
-from api.sms.tasks import send_appointment_confirmation_sms_task
+from api.sms.tasks import send_appointment_confirmation_sms_task, send_avocat_assigned_sms_task
 from api.users.models import User
 from api.users.roles import UserRoles
 
@@ -26,6 +26,7 @@ from api.utils.email.leads.tasks import (
     send_dossier_status_notification_task,
     send_formulaire_task,
     send_jurist_assigned_notification_task,
+    send_avocat_assigned_notification_task,
 )
 
 
@@ -234,11 +235,19 @@ class LeadViewSet(viewsets.ModelViewSet):
 
         if action_type == "assign":
             lead.assigned_to.add(user)
+            if user.role == UserRoles.AVOCAT:
+                send_avocat_assigned_sms_task(lead.id, user.id)
+                send_avocat_assigned_notification_task(lead.id, user.id)
         elif action_type == "unassign":
             lead.assigned_to.remove(user)
         elif user.role == UserRoles.ADMIN:
             if assign_ids:
-                lead.assigned_to.add(*User.objects.filter(id__in=assign_ids, is_active=True))
+                users_to_assign = User.objects.filter(id__in=assign_ids, is_active=True)
+                lead.assigned_to.add(*users_to_assign)
+                for assigned_user in users_to_assign:
+                    if assigned_user.role == UserRoles.AVOCAT:
+                        send_avocat_assigned_sms_task(lead.id, assigned_user.id)
+                        send_avocat_assigned_notification_task(lead.id, assigned_user.id)
             if unassign_ids:
                 lead.assigned_to.remove(*User.objects.filter(id__in=unassign_ids))
         else:
