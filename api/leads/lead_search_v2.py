@@ -27,6 +27,9 @@ class LeadSearchViewV2(generics.ListAPIView):
             .prefetch_related("assigned_to", "jurist_assigned")
         )
 
+        if self.request.user.is_authenticated and self.request.user.role == UserRoles.AVOCAT:
+            base_qs = base_qs.filter(assigned_to=self.request.user)
+
         if not q:
             return base_qs.order_by("-created_at")
 

@@ -12,6 +12,7 @@ from api.clients.models import Client
 from api.leads.models import Lead
 from api.contracts.models import Contract
 from api.leads.constants import RDV_CONFIRME, RDV_PLANIFIE
+from api.users.roles import UserRoles
 
 
 # ---------- Utils ----------
@@ -107,6 +108,10 @@ class LeadSearchView(APIView):
                 statut_dossier_color=F("statut_dossier__color"),
             )
         )
+
+        # --- Avocat specific filter ---
+        if request.user.is_authenticated and request.user.role == UserRoles.AVOCAT:
+            qs = qs.filter(assigned_to=request.user)
 
         # --- Filters ---
         if date_from and date_to:
