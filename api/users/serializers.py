@@ -60,7 +60,7 @@ class UserSerializer(serializers.ModelSerializer):
             data["last_name"] = format_name(data["last_name"])
 
         if getattr(instance, "role", None) == UserRoles.AVOCAT:
-            data["last_name"] = f"Maître {data.get('last_name', '')}".strip()
+            data["first_name"] = f"Maître {data.get('first_name', '')}".strip()
 
         return data
 
