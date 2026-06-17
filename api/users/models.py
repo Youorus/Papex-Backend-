@@ -158,7 +158,11 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def get_full_name(self):
         """Retourne le prénom + nom complet."""
-        return f"{self.first_name} {self.last_name}"
+        from api.users.roles import UserRoles
+        name = f"{self.first_name} {self.last_name}"
+        if self.role == UserRoles.AVOCAT:
+            return f"Maître {name}".strip()
+        return name
 
     def get_short_name(self):
         """Retourne uniquement le prénom."""

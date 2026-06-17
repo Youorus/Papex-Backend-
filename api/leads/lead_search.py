@@ -195,11 +195,19 @@ class LeadSearchView(APIView):
                 "has_conseiller": lead.has_conseiller,
                 "has_jurist": lead.has_jurist,
                 "jurists": [
-                    {"id": u.id, "first_name": u.first_name, "last_name": u.last_name}
+                    {
+                        "id": u.id,
+                        "first_name": u.first_name,
+                        "last_name": f"Maître {u.last_name}" if u.role == UserRoles.AVOCAT else u.last_name
+                    }
                     for u in lead.jurist_assigned.all()
                 ],
                 "conseillers": [
-                    {"id": u.id, "first_name": u.first_name, "last_name": u.last_name}
+                    {
+                        "id": u.id,
+                        "first_name": u.first_name,
+                        "last_name": f"Maître {u.last_name}" if u.role == UserRoles.AVOCAT else u.last_name
+                    }
                     for u in lead.assigned_to.all()
                 ],
             }

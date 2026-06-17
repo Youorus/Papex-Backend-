@@ -30,6 +30,10 @@ class AssignedUserSerializer(serializers.ModelSerializer):
         if data.get("last_name"):
             data["last_name"] = format_name(data["last_name"])
 
+        from api.users.roles import UserRoles
+        if getattr(instance, "role", None) == UserRoles.AVOCAT:
+            data["last_name"] = f"Maître {data.get('last_name', '')}".strip()
+
         return data
 
     def get_avatar_url(self, obj):
