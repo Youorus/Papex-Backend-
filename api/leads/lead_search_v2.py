@@ -8,6 +8,7 @@ from django.db.models import Q, Case, When, Value, IntegerField
 from api.core.pagination import CRMLeadPagination
 from api.leads.models import Lead
 from api.leads.serializers import LeadSerializer
+from api.users.roles import UserRoles
 
 
 class LeadSearchViewV2(generics.ListAPIView):
